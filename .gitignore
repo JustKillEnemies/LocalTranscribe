@@ -62,6 +62,7 @@ Desktop.ini
 /temp/
 /work/
 /backups/
+/dumps/
 .cache/
 .huggingface/
 .hf_home/
@@ -73,6 +74,10 @@ Desktop.ini
 *.sqlite3
 *.db
 *.dump
+*.backup
+*.sql.gz
+*.sql.bz2
+*.sql.xz
 
 # Model weights
 *.pt
