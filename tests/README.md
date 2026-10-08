@@ -39,3 +39,33 @@ doctor проверяется также на фактической Windows-м�
 фактические команды и результаты находятся в [progress](../docs/progress.md).
 При отказе доступа к общему Windows Temp используйте новый уникальный каталог
 в игнорируемом tmp/ и PYTEST_DEBUG_TEMPROOT; пример — в [README](../README.md).
+
+
+## PostgreSQL, шаг 03
+
+- [test_database_unit.py](test_database_unit.py): Domain transitions, AppSettings
+  URL/test guards, PG DDL/offline Alembic, валидация ms. Offline SQL не является
+  интеграционной проверкой.
+- [test_postgresql.py](test_postgresql.py): только настоящая PostgreSQL; отдельная
+  test DB и случайная схема на тест. Без доступа — SKIP; SQLite/mock не используются.
+  Подробная настройка и безопасные команды — [README](../README.md).
+
+Для уже установленного PostgreSQL на Windows можно проверить всё автономно:
+
+```powershell
+uv run python scripts/check_postgresql.py --postgres-bin 'C:/Program Files/PostgreSQL/18/bin'
+```
+
+Runner не устанавливает сервер и не меняет службу: создаёт собственный кластер
+в игнорируемом tmp/, случайный SCRAM пароль и loopback порт, только test DB;
+передаёт параметры через окружение AppSettings, выполняет pytest и миграционный
+цикл, останавливает свой процесс в finally. Bootstrap pwfile удаляется; каталог
+проверки/логи остаются в tmp/. PYTEST_REQUIRE_POSTGRES=1 превращает отсутствие
+реального подключения в FAIL. Обычный pytest такой сервер автоматически не запускает.
+
+Для уже настроенной отдельной test DB:
+```powershell
+$env:PYTEST_REQUIRE_POSTGRES = '1'
+uv run pytest tests/test_postgresql.py -q
+```
+Для обычного запуска с честными SKIP удалите только эту тестовую переменную.

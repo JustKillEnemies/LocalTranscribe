@@ -11,7 +11,8 @@
 
 Пакет поддерживает запуск, справку, вывод версии и диагностику doctor.
 Настройки читаются из локального окружения или пользовательского .env. Транскрибация, GUI,
-GPU worker, PostgreSQL и экспорт пока не реализованы.
+GPU worker и экспорт пока не реализованы. PostgreSQL-схема, Alembic и
+транзакционные репозитории реализованы отдельно; подключения берут AppSettings.
 Единственный источник статуса этапов и результатов проверок —
 [docs/progress.md](docs/progress.md).
 [Исходное ТЗ](docs/ORIGINAL_TZ.md) сохранено и синхронизировано с
@@ -29,6 +30,12 @@ Transcribation/
 ├── .python-version
 ├── pyproject.toml
 ├── uv.lock
+├── alembic.ini
+├── migrations/
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/0001_initial.py
+├── scripts/check_postgresql.py
 ├── docs/
 │   ├── CODEX_PROMPTS_V2.md
 │   ├── LocalTranscribe_Codex_Prompts_V2.md
@@ -44,11 +51,20 @@ Transcribation/
 │   ├── main.py
 │   └── local_transcriber/
 │       ├── __init__.py
-│       └── __main__.py
+│       ├── __main__.py
+│       ├── domain/jobs.py
+│       └── infrastructure/
+│           ├── settings.py
+│           ├── doctor.py
+│           └── database/{models,session,repositories}.py
 └── tests/
     ├── README.md
     ├── test_repository_audit.py
-    └── test_cli.py
+    ├── test_cli.py
+    ├── test_settings.py
+    ├── test_doctor.py
+    ├── test_database_unit.py
+    └── test_postgresql.py
 ```
 
 Git-корень — Transcribation/. Каталог .git ранее перенесён из src/ с разрешения
@@ -71,8 +87,9 @@ Git-корень — Transcribation/. Каталог .git ранее перен�
 Используется обычный CPython 3.14 x64 с GIL, >=3.14,<3.15.
 Существующая .venv сохраняется; глобальная установка Python не изменяется.
 Hatchling собирает пакет, uv.lock закрепляет версии dev-инструментов.
-Runtime-зависимости: Pydantic, Pydantic Settings и python-dotenv, версии закреплены.
-Тяжёлые AI/CUDA/GUI/БД библиотеки не устанавливаются.
+Runtime-зависимости: Pydantic/Settings/dotenv, SQLAlchemy, Alembic и psycopg[binary];
+версии закреплены. Тяжёлые AI/CUDA/GUI библиотеки не устанавливаются.
+PostgreSQL сервер не устанавливается Python-зависимостями.
 [Совместимость ML](docs/python314_compatibility.md) проверяется на своих этапах.
 
 PowerShell, из корня проекта:
@@ -208,7 +225,8 @@ doctor exit 0 означает, что диагностический отчёт
 
 PostgreSQL: укажите pg_isready из установленного PostgreSQL/bin.
 Проверяется только готовность локального сервера принимать подключения.
-Пароль, наличие конкретной БД, SQL и миграции будут проверены в 03.
+Doctor не проверяет пароль, наличие конкретной БД или SQL-схему.
+Эти проверки выполняются миграциями и интеграционными тестами шага 03.
 Опциональный DSN разрешает postgres/postgresql, один loopback host, корректный
 порт и имя БД; query/fragment и внешние host отклоняются. DSN не передаётся инструменту.
 Отдельные HOST/PORT применяются, если DSN пуст.
@@ -219,3 +237,64 @@ NVIDIA проверяется через nvidia-smi. Это не подтвер�
 Модель: только локальные непустые model.bin, config.json и tokenizer.json;
 JSON проверяется, веса не читаются. OK здесь не подтверждает качество модели
 или inference. Сетевых загрузок doctor не выполняет.
+
+
+## PostgreSQL и миграции
+
+Схема §7 ТЗ: media_files, audio_streams, transcription_jobs, processing_chunks,
+transcript_segments, transcript_versions, custom_terms. Метаданные/текст хранятся
+в БД; медиа/PCM остаются файлами. Миграции никогда не запускаются при import,
+--help/--version или doctor. Ни SQLite, ни mock не заменяют PostgreSQL.
+
+AppSettings шага 02 — единственная конфигурация. Задайте USER/PASSWORD/HOST/PORT/
+DB/TEST_DB в пользовательском %LOCALAPPDATA%/LocalTranscriber/.env либо окружении.
+DSN, если задан, имеет приоритет над отдельными полями; его рабочая database
+заменяется на TEST_DB только в test-режиме. Пароль/DSN не передавайте в аргументах
+команд или Git. [Пример](.env.example) не содержит credentials.
+Отдельная test DB должна существовать, отличаться от рабочей и иметь имя *_test
+или test_*; postgres/template* запрещены. Роль должна иметь CONNECT и CREATE
+на test DB для собственных схем. Приложение не создаёт базы/роли/службы автоматически.
+
+На Windows с уже установленными PostgreSQL binaries безопасный автономный прогон:
+
+```powershell
+uv run python scripts/check_postgresql.py --postgres-bin 'C:/Program Files/PostgreSQL/18/bin'
+```
+
+Создаётся отдельный временный кластер в tmp/ с SCRAM/случайным паролем, loopback
+и свободным портом, только local_transcriber_test. Рабочая служба/БД не используются.
+Настройки передаются AppSettings через окружение только дочерних команд;
+runner запускает все тесты, реальный migration cycle и Ruff, затем останавливает
+собственный процесс в finally. Его временный каталог и логи остаются игнорируемыми;
+pwfile удаляется. Установка PostgreSQL или управление системной службой не выполняются.
+
+Для вашей уже настроенной отдельной test DB, из корня проекта:
+
+```powershell
+uv run pytest tests/test_database_unit.py -q
+$env:PYTEST_REQUIRE_POSTGRES = '1'
+uv run pytest tests/test_postgresql.py -q
+uv run alembic -x test=true upgrade head
+uv run alembic -x test=true upgrade head
+uv run alembic -x test=true check
+# Только в выделенной disposable test DB: удаляет таблицы приложения!
+uv run alembic -x test=true downgrade base
+uv run alembic -x test=true upgrade head
+```
+
+pytest создаёт и очищает только свои lt_test_<uuid> схемы. CLI Alembic работает
+с public выбранной test DB: команды downgrade допустимы только если эта база
+выделена для таких испытаний. Test mode дополнительно проверяет current_database.
+Без доступа обычный pytest явно SKIP; строгий режим и runner дают FAIL.
+
+Для намеренного развёртывания схемы приложения после настройки рабочей базы:
+
+```powershell
+uv run alembic upgrade head
+uv run alembic current
+# При отдельном .env (полный локальный путь, без секретов в аргументах):
+uv run alembic -x env_file='C:/Users/USER/AppData/Local/LocalTranscriber/.env' upgrade head
+```
+
+Рабочие миграции выполняются только вручную; downgrade рабочей БД запрещён.
+Фактические проверки и ограничения машины перечислены в docs/progress.md.

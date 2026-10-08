@@ -91,3 +91,22 @@
 [pg_isready](https://www.postgresql.org/docs/current/app-pg-isready.html),
 [CTranslate2 CUDA device count](https://opennmt.net/CTranslate2/python/ctranslate2.get_cuda_device_count.html).
 Предыдущие решения сохраняются как история; фактические результаты находятся в progress.md.
+
+
+## PostgreSQL, ШАГ 03 — 2026-10-08
+
+| ID | Решение | Статус | Обоснование |
+| --- | --- | --- | --- |
+| ADR-028 | SQLAlchemy 2.1.4, Alembic 1.20.0, psycopg[binary] 3.3.6, фиксированные в pyproject/uv.lock; AppSettings — единственная конфигурация подключения. | Принято | Стабильные выпуски проверены на CPython 3.14.4 Windows x64 реальными запросами PostgreSQL 18.3. Psycopg binary содержит клиентский драйвер, не установщик сервера. |
+| ADR-029 | UUID/TIMESTAMPTZ/JSONB/BIGINT; добавить processing_chunks.media_file_id и составные FK задания/дорожки/сегмента. | Принято | Обычный FK подтверждает существование записи, но не принадлежность дорожки тому же файлу или сегмента нужному заданию. Дополнительное поле — явное расширение §7.4, защищённое FK, без хранения медиа. |
+| ADR-030 | Атомарная транзакция chunk+segments+COMPLETED+счётчики; блокировка job FOR UPDATE, upsert по UNIQUE; идентичный повтор no-op, конфликт RAW/границ — отказ. | Принято | Защита первого конкурентного INSERT и прогресса нескольких дорожек; отсутствие дублей/частичных результатов. Прогресс включает зарегистрированные незавершённые chunks. |
+| ADR-031 | RAW UPDATE запрещён триггерами PostgreSQL; версии и сегменты имеют уникальные номера; удаление задания каскадно, исходный файл не удаляется. | Принято | Правила действуют и при прямом SQL; READABLE/MANUAL сохраняются отдельно. Удаление истории — явная DB-only операция. |
+| ADR-032 | Test DB отличается от фактической рабочей DB и имеет *_test/test_* имя; каждый тест владеет случайной схемой. Downgrade только test=true. | Принято | Запрет подключения интеграций к рабочей/системной БД; очистка только своих схем. Ошибка настроек не запускает миграции. Нет доступа — SKIP, а строгий тестовый runner требует реального PG и FAIL при отсутствии доступа. |
+| ADR-033 | Реальные проверки допускают отдельный временный процесс из уже установленных PostgreSQL binaries, без установки и изменения служб. | Принято | Служба PostgreSQL 18 запущена, но пользовательский AppSettings без credentials. Изолированный процесс SCRAM/loopback в игнорируемом tmp/ позволяет проверить шаг автономно. Процесс останавливается в finally; рабочая БД не изменяется. |
+| ADR-034 | Начальная миграция содержит неизменный DDL; preflight Alembic явно заканчивает autobegin; служебная alembic_version исключена из schema diff. | Принято | Реальные проверки выявили риск незакоммиченной миграции и ложный remove_table из-за search_path тестовой схемы; повторный upgrade/check/downgrade/upgrade проверяет исправления. |
+
+Сверка: [SQLAlchemy transactions](https://docs.sqlalchemy.org/en/21/orm/session_transaction.html),
+[Alembic tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html),
+[PostgreSQL constraints](https://www.postgresql.org/docs/current/ddl-constraints.html).
+Фактические результаты и ограничения — progress.md. Worker, импорт медиа,
+распознавание и словарные преобразования этим шагом не реализуются.

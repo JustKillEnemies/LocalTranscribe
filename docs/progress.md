@@ -4,6 +4,150 @@
 
 ## Текущий шаг
 
+ШАГ 03 V2 — PostgreSQL: схема, миграции и транзакционные репозитории.
+Статус: **READY FOR STEP 04**. Шаг 02 принят новым запросом владельца.
+Шаг 03 реализован; обязательные проверки выполнены на реальной изолированной
+PostgreSQL 18.3 Windows x64. Блокеров для приёмки 03 нет.
+ШАГ 04 не начат и требует отдельного разрешения.
+Использована существующая .venv: CPython 3.14.4 x64 с GIL, >=3.14,<3.15.
+
+## Реализовано
+
+- Семь SQLAlchemy 2.1.4 моделей §7 ТЗ: media_files, audio_streams,
+  transcription_jobs, processing_chunks, transcript_segments,
+  transcript_versions, custom_terms. UUID/FK, TIMESTAMPTZ, JSONB, BIGINT ms.
+- UNIQUE участков (job_id, stream_id, chunk_index), дорожек (media_file_id,
+  stream_index), сегментов (chunk_id, segment_index), версий (job_id,
+  version_number), canonical_form терминов. Индексы job/chunk/stream и
+  (job_id, start_ms). CHECK времени, состояний, завершения, прогресса,
+  положительных параметров аудио, JSON-типов, номера/типа версии, непустого термина.
+- Составные FK исключают дорожку другого файла и сегмент чужого задания/чанка.
+  Дополнительное processing_chunks.media_file_id обосновано ADR-029.
+- Domain JobStatus: восемь состояний ТЗ и проверка переходов чистым Python.
+- JobRepository: создание/переходы/прогресс из БД/явное DB-only удаление задания.
+  ChunkRepository: регистрация незавершённых chunks; атомарное сохранение
+  сегментов, COMPLETED, даты и счётчиков в одной транзакции. Любая ошибка — rollback.
+  FOR UPDATE + ON CONFLICT защищают конкурентный повтор; идентичный результат
+  не меняет БД, отличающийся RAW/интервал отвергается. Сегменты читаются пакетами
+  с сортировкой по абсолютным ms; весь длинный транскрипт не загружается заранее.
+- RAW сегменты/RAW версии защищены PostgreSQL UPDATE-триггерами. Каскадное
+  удаление задания удаляет его результаты, сохраняет исходный файл, MediaFile
+  и другое задание. READABLE/MANUAL не перезаписывают RAW.
+- Engine/Session и Alembic используют только существующий AppSettings:
+  DSN приоритетен, localhost only; echo=False/hide_parameters=True,
+  безопасный PersistenceError без driver detail/секретов/текста.
+- Alembic 1.20.0 и фиксированный DDL revision 0001_initial.
+  Нет автозапуска миграций в CLI/import. Downgrade — только отдельная test DB.
+- Защита test DB: отличается от фактической рабочей DB (в том числе DSN),
+  имя *_test/test_*, запрет postgres/template*. На каждый тест — случайная
+  lt_test_<uuid> схема, search_path без public, удаляется только собственная схема.
+- scripts/check_postgresql.py: воспроизводимый реальный прогон с установленными
+  binaries в отдельном временном процессе PostgreSQL, SCRAM/случайный пароль,
+  loopback/свободный порт, только test DB; остановка в finally.
+  Не устанавливает сервер и не меняет системную службу.
+- psycopg[binary] 3.3.6 и зависимости установлены только в существующую .venv;
+  pyproject/uv.lock согласованы (27 записей lock). CUDA/ML/GUI не устанавливались.
+- 83 unit-проверки БД/Domain и 22 реальных PostgreSQL интеграционных случая;
+  сохранены 167 тестов предыдущих этапов. Всего 272.
+- Документация, README, матрица, совместимость Python и ADR-028–034 обновлены.
+  Application pipeline, импорт, FFmpeg/VAD/STT/GUI/IPC не реализовывались.
+
+## Выполненные проверки
+
+Из корня Transcribation, установленный .venv Python 3.14.4.
+Первый прогон без настроенного PostgreSQL: 250 passed, 15 skipped.
+SKIP не был объявлен успешной интеграцией. Затем использованы уже установленные
+binaries C:/Program Files/PostgreSQL/18/bin: собственный кластер в игнорируемом
+tmp/step03-pg-<uuid>, отдельная local_transcriber_test, случайный порт/SCRAM пароль.
+Рабочая local_transcriber не создавалась и не использовалась.
+Реальное подключение подтвердило current_database и PostgreSQL 18.3.
+Строгий runner PYTEST_REQUIRE_POSTGRES=1 запрещает подменить отсутствие БД SKIP.
+
+Воспроизводимая команда:
+```powershell
+uv run python scripts/check_postgresql.py --postgres-bin 'C:/Program Files/PostgreSQL/18/bin'
+```
+
+| Команда / проверка | Статус | Фактический результат |
+| --- | --- | --- |
+| python --version | PASS | Python 3.14.4 из существующей .venv. |
+| uv sync; TOML/импорты; uv lock --check --offline | PASS | SQLAlchemy 2.1.4, Alembic 1.20.0, psycopg/binary 3.3.6; 27 lock entries. |
+| uv run pytest -q (с реальной test DB) | PASS | 272 passed, exit 0; без пропусков. В контрольном прогоне 23.15s. |
+| uv run pytest tests/test_database_unit.py -q | PASS | 83 passed in 0.88s; все 64 пары статусов, URL/guard, ms, offline DDL и шаблон Alembic. Offline SQL не является PostgreSQL integration. |
+| uv run pytest tests/test_postgresql.py -q | PASS | 22 passed in 9.15s на PostgreSQL 18.3; SQLite/mock не использованы. |
+| uv run alembic -x test=true upgrade head (дважды) | PASS | Создана схема 0001_initial; повтор не меняет revision/не дублирует таблицы. |
+| uv run alembic -x test=true check | PASS | No new upgrade operations detected. |
+| uv run alembic -x test=true downgrade base; ... upgrade head | PASS | Реально выполнены только в disposable test DB; схема восстановлена. |
+| uv run alembic -x test=true current | PASS | 0001_initial (head). |
+| PostgreSQL constraints/rollback/idempotence | PASS | FK/CHECK/UNIQUE/NOT NULL; ошибка второго сегмента откатывает весь результат; подтверждённый RAW не меняется; конкурентный повтор без дублей. |
+| Две дорожки / два задания / progress / сортировка ms | PASS | Изолированные результаты, 50% при одном из двух planned chunks; 100% после обоих, чтение batch_size=1 по абсолютному времени. |
+| RAW UPDATE / каскадное удаление задания | PASS | Реальные SQL UPDATE отвергнуты триггерами; источник/другое задание сохранены. |
+| python -m pip check | PASS | No broken requirements found, exit 0. |
+| ????????? runner / ????????? / secrets audit | PASS | ??? ??????? exit 0; ??????????? postmaster.pid ???????????, pwfile ??????; ??????? private key/token patterns ?? ??????? ? changed/new ??????. |
+| uv run ruff check . | PASS | All checks passed!, exit 0. |
+| uv run ruff format --check . | PASS | 34 files already formatted, exit 0 после исправления формата миграции. |
+| git diff --check | PASS | Exit 0; только core.autocrlf предупреждение LF/CRLF для uv.lock. |
+| Документы/FR/NFR/локальные ссылки/.gitignore/.env.example/CLI | PASS | Сохранённые 167 тестов проходят; обязательные документы и новые ссылки доступны; secrets/local recordings/tmp исключаются. |
+| Сохранность оригиналов/точек входа/индекса | PASS | ORIGINAL_TZ, промпты, AGENTS, main.py, __main__, settings/doctor и старые тесты сохранены; commit/push/staging отсутствуют. |
+| Постоянная рабочая БД системной службы localhost:5432 | NOT RUN | Служба postgresql-x64-18 Running и порт доступны, но AppSettings не содержит credentials. Изменения рабочей БД/службы не выполнялись. Реальная persistence приёмка выполнена на отдельном кластере. |
+| Реальный FFmpeg/VAD/Whisper/GPU/GUI | NOT RUN | За пределами 03; ничего не установлено или реализовано. |
+
+## Обнаруженные и исправленные ошибки
+
+1. Alembic test preflight SELECT открывал autobegin: без завершения этой
+   транзакции CLI миграция могла откатиться при закрытии connection.
+   Теперь preflight commit происходит до context.begin_transaction.
+   CLI повторный upgrade/check/current и downgrade/upgrade реально проверены.
+2. Alembic autogenerate с test_schema/search_path видел alembic_version как
+   лишнюю предметную таблицу. Реальный regression test command.check выявил
+   remove_table; исправлено исключением только служебного ledger.
+3. Захват Windows pg_ctl через pipe удерживал EOF дочерним сервером.
+   Runner использует файлы логов; остановка своего процесса проверена.
+4. Ошибки Ruff/imports/переводов строк устранены, итоговые проверки PASS.
+
+## Ограничения и известные вопросы
+
+- Для постоянной рабочей БД нужно настроить роль/пароль и базы через user .env
+  или окружение AppSettings. Пароль не требуется сообщать в чате.
+  Для повторной приёмки 03 достаточно runner выше; это не блокер данного этапа.
+- Обычный pytest без отдельной test DB честно пропустит PostgreSQL cases;
+  strict runner превращает недоступность в FAIL. Test роль требует CONNECT/CREATE.
+- Runner рассчитан на Windows и уже установленные binaries, оставляет свои
+  остановленные кластеры/логи в tmp/. Пользовательские данные не удалялись;
+  пароль bootstrap удалён, credentials не записаны в Git.
+- ORM create_all не заменяет Alembic: RAW-триггеры создаёт миграция.
+- Общий процент относится к зарегистрированному плану chunks, а не к ещё
+  неизвестной продолжительности будущего pipeline. Resume/STT/словарные CRUD —
+  соответствующие последующие шаги.
+- Блокирующих проблем для приёмки ШАГА 03 нет.
+
+## Критерии готовности / ручной чек-лист
+
+- [x] Все семь таблиц §7, типы, индексы, FK, CHECK и уникальность реализованы.
+- [x] Миграции применяются, повторяются и откатываются/восстанавливаются в test DB.
+- [x] Атомарность/rollback, повтор и конкурентное сохранение подтверждены реальной PostgreSQL.
+- [x] Прогресс считается из DB; две дорожки/два задания и ms сортировка проверены.
+- [x] Test DB guard и отдельные схемы защищают рабочие данные; RAW/source сохранены.
+- [x] Python 3.14/.venv, прежний CLI и точки входа сохранены; все обязательные проверки PASS.
+- [x] Документы/матрица/решения обновлены; будущие этапы не начаты.
+- [ ] Владелец принял 03 и отдельным заданием разрешил 04.
+- [ ] Перед использованием постоянной БД настроить AppSettings credentials/роль/DB.
+
+## Следующий этап
+
+Только после разрешения — ШАГ 04: FFprobe, медиаинспекция и импорт.
+[План](implementation_plan.md) и [матрица](requirements_traceability.md) сохранены;
+этот шаг здесь не реализован.
+
+<details>
+<summary>История завершённых шагов 00–02 (прежние результаты и ограничения)</summary>
+
+# История шага 02
+
+Дата: 2026-10-08.
+
+## Текущий шаг
+
 ШАГ 02 V2 — настройки и диагностика Windows/инструментов.
 Статус: **READY FOR STEP 03**. Предыдущий этап принят новым запросом владельца.
 Шаг 02 реализован, обязательные проверки выполнены. Блокеров для приёмки 02 нет.
@@ -148,7 +292,7 @@ Dry-run не проверяет права записи; --create-dirs пров�
 <details>
 <summary>Отчёты ШАГОВ 01 и 00</summary>
 
-# Состояние проекта
+# История шага 02
 
 Дата: 2026-10-08.
 
@@ -262,7 +406,7 @@ ML/CUDA-совместимость требует реальных будущи�
 <details>
 <summary>Отчёт ШАГА 00 и предшествующая история</summary>
 
-# Состояние проекта
+# История шага 02
 
 Дата: 2026-10-08.
 
@@ -381,7 +525,7 @@ dev-окружение не пересоздавать. Runtime-библиоте
 <details>
 <summary>Предварительная подготовка и первая попытка аудита 00</summary>
 
-# Состояние проекта
+# История шага 02
 
 Дата: 2026-10-08.
 
@@ -542,6 +686,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

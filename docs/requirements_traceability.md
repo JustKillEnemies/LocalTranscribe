@@ -3,7 +3,7 @@
 Источник — [requirements.md](requirements.md), сверенный с
 [ORIGINAL_TZ.md](ORIGINAL_TZ.md). Ни один FR/NFR не перенумерован.
 «Реализация» указывает распределение по шагам; их результаты находятся в progress.md.
-Ниже добавлены ссылки на артефакты шагов 01 и 02; они не означают приёмку всего MVP.
+Ниже добавлены ссылки на артефакты шагов 01–03; они не означают приёмку всего MVP.
 Статусы — [progress.md](progress.md), названия шагов — [implementation_plan.md](implementation_plan.md).
 
 | Требование | Реализация (шаги) | Приёмка (шаги) | Граница / существенное условие |
@@ -68,8 +68,26 @@
 | NFR-05: пароли и сохранность данных | [test_settings.py](../tests/test_settings.py), [test_doctor.py](../tests/test_doctor.py) | SecretStr/repr, безопасные ошибки DSN/env, secret-free subprocess, явное создание каталогов, неизменные sentinel файлы. |
 | TZ-TESTS: положительные/негативные Windows сценарии | [test_settings.py](../tests/test_settings.py), [test_doctor.py](../tests/test_doctor.py) | .env escapes и синтаксис, DSN port=0, кириллица/пробелы, реальные процессы и все launcher. |
 | CLI/точки входа шага 01 сохраняются | [__main__.py](../src/local_transcriber/__main__.py), [test_cli.py](../tests/test_cli.py) | Версия/справка и import smoke сохранены; doctor добавлен с ленивой загрузкой Infrastructure. |
-| TZ-DELIVERY: настройки и инструкции | [README.md](../README.md), [uv.lock](../uv.lock) | Лёгкие настройки закреплены; ни CUDA/ML, ни миграции/репозитории не добавлены. |
+| TZ-DELIVERY: настройки и инструкции | [README.md](../README.md), [uv.lock](../uv.lock) | На шаге 02 закреплены лёгкие настройки; CUDA/ML не добавлены, миграции/репозитории относятся к 03. |
 
 Итоговые статусы и фактическая среда — [progress.md](progress.md).
 pg_isready не подтверждает authentication/схему БД; полная приёмка БД — шаг 03.
 Модель/CUDA checks не подтверждают inference — шаги 06–07.
+
+
+## Артефакты и проверки шага 03
+
+Это приёмка границ хранения §7, не всей транскрибации FR-07 или MVP.
+Результаты и состояние среды — только [progress.md](progress.md).
+
+| Требование / граница | Артефакт | Проверка и граница приёмки |
+| --- | --- | --- |
+| TZ-DB §7.1–7.7, TZ-STACK: все семь таблиц и типы | [models.py](../src/local_transcriber/infrastructure/database/models.py), [0001_initial.py](../migrations/versions/0001_initial.py) | PostgreSQL integration: upgrade/repeat/check/downgrade/upgrade; UUID, JSONB, TIMESTAMPTZ, BIGINT, FK, CHECK, UNIQUE и индексы. |
+| FR-02: несколько дорожек одного файла | [models.py](../src/local_transcriber/infrastructure/database/models.py), [test_postgresql.py](../tests/test_postgresql.py) | Две дорожки/два задания; составные FK отклоняют другой файл и чужой job/chunk. Выбор/смешивание дорожек — 04–05/12–13. |
+| FR-07, NFR-03: атомарность и повтор без дублей | [repositories.py](../src/local_transcriber/infrastructure/database/repositories.py), [test_postgresql.py](../tests/test_postgresql.py) | Commit/rollback после ошибки flush, одинаковый и конфликтующий повтор, конкурентное сохранение, прогресс из DB. Полное resume/fingerprint/worker — 04/08–09. |
+| FR-07 / TZ-ARCH: состояния задания | [jobs.py](../src/local_transcriber/domain/jobs.py), [test_database_unit.py](../tests/test_database_unit.py) | Все 64 пары переходов, терминальные состояния, сохранение переходов в PostgreSQL. Управление процессами — 09. |
+| FR-08 / TZ-DB §7.5–7.6: сохранность RAW | [0001_initial.py](../migrations/versions/0001_initial.py), [test_postgresql.py](../tests/test_postgresql.py) | Реальный SQL UPDATE сегментов/RAW-версии отвергается; уникальность версий; RAW не меняется после конфликтующего повтора. Обработка/редактор — 10/13. |
+| FR-09 / TZ-DB §7.7: схема терминов | [models.py](../src/local_transcriber/infrastructure/database/models.py) | canonical_form/variants/enabled/created_at, CHECK и уникальность. CRUD/импорт/преобразования не реализованы: 10/13. |
+| NFR-05 / §7.8: секреты и исходные файлы | [session.py](../src/local_transcriber/infrastructure/database/session.py), [test_postgresql.py](../tests/test_postgresql.py) | URL escaping, безопасные ошибки, CASCADE результатов при удалении задания; исходный файл/другое задание сохраняются. |
+| TZ-TESTS §11: реальная изолированная БД | [test_postgresql.py](../tests/test_postgresql.py), [check_postgresql.py](../scripts/check_postgresql.py) | Test DB guard, случайная схема, strict runner; настоящая PostgreSQL без SQLite/mock, собственный процесс останавливается. |
+| TZ-DELIVERY §15: воспроизводимые миграции/инструкции | [alembic.ini](../alembic.ini), [env.py](../migrations/env.py), [README.md](../README.md), [uv.lock](../uv.lock) | Единый AppSettings, без DSN в ini; offline SQL — unit, реальный миграционный цикл — отдельная integration. |
