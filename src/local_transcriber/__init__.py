@@ -1,1 +1,1 @@
-"""Local desktop transcriber package; application behavior is not implemented yet."""
+"""LocalTranscriber: local desktop transcription, developed in stages."""

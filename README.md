@@ -9,16 +9,13 @@
 
 ## Текущее состояние
 
-Предварительная подготовка репозитория завершена и сохранена в Git.
-Шаг 00 промптов V2 — аудит и среда разработки; отчёт о его завершении находится
-в progress.md. Следующий шаг автоматически не начинается.
-Единственный источник текущего статуса и результатов — [docs/progress.md](docs/progress.md).
-Полное [исходное ТЗ](docs/ORIGINAL_TZ.md) предоставлено и синхронизировано с
-[requirements.md](docs/requirements.md); [матрица этапов](docs/requirements_traceability.md)
-показывает, где выполняется каждое требование.
-Транскрибация, GUI, GPU worker, работа с PostgreSQL и экспорт **не реализованы**.
-Пакет `local_transcriber` содержит только описание; `src/main.py` сохранён пустым.
-Команды запуска приложения пока нет.
+Пакет поддерживает запуск, справку и вывод версии. Транскрибация, GUI,
+GPU worker, PostgreSQL и экспорт пока не реализованы.
+Единственный источник статуса этапов и результатов проверок —
+[docs/progress.md](docs/progress.md).
+[Исходное ТЗ](docs/ORIGINAL_TZ.md) сохранено и синхронизировано с
+[требованиями](docs/requirements.md); [матрица](docs/requirements_traceability.md)
+связывает требования, этапы и артефакты.
 
 ## Структура
 
@@ -28,120 +25,134 @@ Transcribation/
 ├── README.md
 ├── .gitignore
 ├── .env.example
-├── pyproject.toml
 ├── .python-version
+├── pyproject.toml
 ├── uv.lock
 ├── docs/
 │   ├── CODEX_PROMPTS_V2.md
 │   ├── LocalTranscribe_Codex_Prompts_V2.md
-│   ├── implementation_plan.md
 │   ├── ORIGINAL_TZ.md
-│   ├── requirements_traceability.md
-│   ├── python314_compatibility.md
 │   ├── requirements.md
+│   ├── requirements_traceability.md
+│   ├── implementation_plan.md
 │   ├── architecture.md
+│   ├── python314_compatibility.md
 │   ├── progress.md
 │   └── decisions.md
 ├── src/
 │   ├── main.py
 │   └── local_transcriber/
-│       └── __init__.py
+│       ├── __init__.py
+│       └── __main__.py
 └── tests/
     ├── README.md
-    └── test_repository_audit.py
+    ├── test_repository_audit.py
+    └── test_cli.py
 ```
 
-Git-корень — `Transcribation/`. Каталог `.git` перенесён из `src/` с разрешения
-пользователя, история и remote сохранены. В подготовленном коммите прежний
-корневой `main.py` получил путь `src/main.py`; файл остаётся пустым.
-Папка проекта называется Transcribation, GitHub-репозиторий — LocalTranscribe,
-Python-пакет — local_transcriber. Переименование не требуется.
+Git-корень — Transcribation/. Каталог .git ранее перенесён из src/ с разрешения
+пользователя, история и remote сохранены. Исходный src/main.py сохранён и
+делегирует единой функции local_transcriber.__main__:main.
+Папка проекта — Transcribation, GitHub — LocalTranscribe, пакет — local_transcriber.
 
 ## Документация
 
-- [Требования](docs/requirements.md): известный объём проекта и открытые вопросы.
-- [Архитектура](docs/architecture.md): слои, модули, процессы и поток обработки.
-- [Состояние](docs/progress.md): выполненные работы, проверки и следующий этап.
-- [Решения](docs/decisions.md): принятые решения и их обоснование.
+- [Требования](docs/requirements.md): полный объём и уточнения владельца.
+- [Архитектура](docs/architecture.md): слои, модули, процессы и запуск.
+- [Состояние](docs/progress.md): выполненное, проверки и следующий этап.
+- [Решения](docs/decisions.md): принятые решения и обоснование.
 - [Правила агента](AGENTS.md): постоянные ограничения разработки.
 - [Промпты V2](docs/CODEX_PROMPTS_V2.md): указатель на пользовательский исходник.
-- [План 00–17](docs/implementation_plan.md): порядок и зависимости без статусов.
+- [План 00–17](docs/implementation_plan.md): порядок и зависимости.
 
-## Среда разработки
+## Среда разработки и запуск
 
-Python окончательно выбран: обычный CPython 3.14 x64 с GIL, >=3.14,<3.15.
-Локальное dev-окружение — .venv на Python 3.14.4; глобальная установка не меняется.
-[Совместимость ML-зависимостей](docs/python314_compatibility.md) проверяется
-отдельно по wheels, импортам и реальному GPU inference. Модели и CUDA пока
-не устанавливаются, транскрибация и CLI приложения ещё не реализованы.
+Используется обычный CPython 3.14 x64 с GIL, >=3.14,<3.15.
+Существующая .venv сохраняется; глобальная установка Python не изменяется.
+Hatchling собирает пакет, uv.lock закрепляет версии dev-инструментов.
+Runtime-зависимостей сейчас нет; тяжёлые AI/CUDA/GUI/БД библиотеки не устанавливаются.
+[Совместимость ML](docs/python314_compatibility.md) проверяется на своих этапах.
 
-`pyproject.toml` задаёт закреплённый Hatchling и группу dev: uv, pytest, Ruff
-и Hatchling. Точные версии окружения зафиксированы в uv.lock.
-Runtime-зависимости пока отсутствуют. PySide6, PostgreSQL-адаптеры, модели,
-CUDA-библиотеки и движок распознавания на этом этапе не устанавливаются.
-
-Из корня проекта после установки dev-зависимостей:
+PowerShell, из корня проекта:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python --version
-python -m pytest -q
-ruff check .
-ruff format --check .
+uv sync --locked
+uv run python -m local_transcriber --version
+uv run python -m local_transcriber --help
+uv run python -m local_transcriber
+uv run local-transcriber --version
+uv run python src/main.py --help
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
 git diff --check
 ```
 
-Без активации можно вызывать .venv/Scripts/python.exe и ruff.exe напрямую.
-Для воспроизведения только dev-окружения используется локальный uv:
+uv sync устанавливает сам пакет и dev-группу в .venv. Режим --only-dev
+предназначен только для инструментов: в нём пакет и console script не устанавливаются.
+Без активации используйте .venv/Scripts/uv.exe вместо uv.
+Если .venv ещё нет, создайте её установленным Python 3.14 и установите uv локально:
 
 ```powershell
-.\.venv\Scripts\uv.exe sync --locked --only-dev --python .\.venv\Scripts\python.exe
+python --version
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install uv==0.12.23
+.\.venv\Scripts\uv.exe sync --locked --python .\.venv\Scripts\python.exe
 ```
 
-Если .venv отсутствует, создайте её уже установленным Python 3.14, затем
-установите uv только внутрь неё (python -m venv .venv;
-.venv/Scripts/python.exe -m pip install uv==0.12.23). Пакеты среды разработки
-загружаются из PyPI; пользовательские медиа не отправляются.
+Все способы запуска обращаются к одной функции main. --version выводит версию
+установленного пакета; --help и запуск без аргументов показывают справку и дают
+код 0. Неизвестные аргументы, включая ещё не реализованный doctor, дают код 2
+и диагностику в stderr. Сокращения вроде --vers не поддерживаются.
+CLI не загружает модели, не создаёт worker и не читает .env.
 
-Эти команды — инструкция для дальнейшей работы, а не отчёт об их выполнении.
-Для шага 00 добавлены настоящие проверки структуры, документации, Git-исключений
-и негативных сценариев; они не запускают GUI, GPU или БД. Их можно выполнить
-доступным pytest без установки пакета:
+## Проверка установки в чистое окружение
+
+Для воспроизведения проверки wheel создайте отдельное уникальное окружение;
+основная .venv сохраняется. Пример запуска из пути с кириллицей и пробелами:
 
 ```powershell
-python -B -m pytest -q -p no:cacheprovider
+$step01CheckRoot = Join-Path (Get-Location).Path ('tmp/Проверка пакета ' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $step01CheckRoot | Out-Null
+uv build --wheel --out-dir (Join-Path $step01CheckRoot 'wheel')
+uv venv --python .\.venv\Scripts\python.exe (Join-Path $step01CheckRoot 'venv')
+$step01CheckPython = Join-Path $step01CheckRoot 'venv/Scripts/python.exe'
+$step01Wheel = (Get-ChildItem -LiteralPath (Join-Path $step01CheckRoot 'wheel') -Filter '*.whl').FullName
+uv pip install --python $step01CheckPython --no-deps $step01Wheel
+Push-Location -LiteralPath $step01CheckRoot
+try {
+    & $step01CheckPython -I -X utf8 -m local_transcriber --version
+    & $step01CheckPython -I -X utf8 -m local_transcriber --help
+} finally {
+    Pop-Location
+}
 ```
 
-Фактический результат — в progress.md. Успех аудита и инструментов разработки
-не означает работоспособность будущего приложения.
-
-uv.lock фиксирует лёгкие dev-зависимости для Python 3.14. ML/CUDA/GUI/БД
-не добавлены в runtime-зависимости и не устанавливаются этим lock-файлом.
-
-Единая будущая точка входа — `local_transcriber.__main__:main`. При реализации
-bootstrap `python -m local_transcriber`, console script и совместимый
-`src/main.py` должны делегировать ей; сейчас эти точки входа не реализуются.
+Это инструкция для повторения; фактический отчёт — в progress.md.
+Проверка пакета не означает готовность полного desktop-приложения.
 
 ## Локальные данные
 
-Предусмотрены исключённые из Git каталоги `media/`, `recordings/`, `models/`,
-`data/`, `transcripts/`, `exports/`, `logs/`, `tmp/`, `backups/` и `dumps/`.
-Они пока не создаются. Секреты — в локальном окружении или `.env`, никогда в коде.
-Фактические пользовательские пути будут определены при реализации настроек.
-`.env.example` содержит только безопасные примеры и пустой пароль; значения
-пока не читаются приложением. Загрузку конфигурации реализует шаг 02.
+Git исключает media/, recordings/, models/, data/, transcripts/, exports/,
+logs/, tmp/, backups/ и dumps/. Секреты хранятся локально, никогда в коде.
+.env.example содержит безопасные примеры и пустой пароль.
+Загрузка настроек и выбор пользовательских путей относятся к шагу 02.
 SQL-миграции можно хранить в Git; SQL-дампы помещайте в backups/ или dumps/.
+Медиа и транскрипты не отправляются во внешние сервисы.
 
-Если pytest сообщает PermissionError для общего Windows Temp, используйте
-новый уникальный корень временных данных, не удаляя старый каталог:
+Если pytest сообщает PermissionError для общего Windows Temp, создайте новый
+уникальный каталог, сохраняя чужие временные данные:
 
 ```powershell
 $pytestTempRoot = Join-Path (Get-Location).Path ('tmp/pytest-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $pytestTempRoot | Out-Null
 $env:PYTEST_DEBUG_TEMPROOT = $pytestTempRoot
-python -m pytest -q
+uv run pytest -q
 ```
 
-Для ограниченной среды uv можно явно задать локальный кэш:
-`.venv/Scripts/uv.exe --cache-dir .cache/uv lock --check --offline`.
-Эти настройки действуют только в текущем процессе и не меняют глобальный Python.
+Для ограниченной среды uv можно задать $env:UV_CACHE_DIR на .cache/uv в корне
+проекта и $env:UV_PYTHON_DOWNLOADS='never'. Offline-проверка:
+uv --cache-dir .cache/uv lock --check --offline.
+Это настройки текущего процесса; глобальный Python и ACL каталогов не меняются.
