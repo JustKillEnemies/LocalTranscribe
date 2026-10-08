@@ -47,7 +47,7 @@ def test_installed_metadata_matches_project() -> None:
     project = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     metadata = distribution("local-transcriber")
     assert metadata.version == project["project"]["version"]
-    assert metadata.requires is None
+    assert set(metadata.requires or []) == set(project["project"]["dependencies"])
     scripts = {
         entry.name: entry.value
         for entry in metadata.entry_points
@@ -91,7 +91,7 @@ def test_help_and_default_command(kind: str, arguments: list[str]) -> None:
 
 
 @pytest.mark.parametrize("kind", ["module", "wrapper", "console"])
-@pytest.mark.parametrize("argument", ["--unknown-option", "--vers", "doctor"])
+@pytest.mark.parametrize("argument", ["--unknown-option", "--vers", "--future-command"])
 def test_invalid_command_reports_error_without_changing_files(
     kind: str, argument: str, tmp_path: Path
 ) -> None:

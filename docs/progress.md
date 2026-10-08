@@ -4,6 +4,156 @@
 
 ## Текущий шаг
 
+ШАГ 02 V2 — настройки и диагностика Windows/инструментов.
+Статус: **READY FOR STEP 03**. Предыдущий этап принят новым запросом владельца.
+Шаг 02 реализован, обязательные проверки выполнены. Блокеров для приёмки 02 нет.
+ШАГ 03 не начат и требует отдельного разрешения.
+Использована существующая .venv: CPython 3.14.4 x64 с GIL, >=3.14,<3.15.
+Оригинальное ТЗ и его полное содержимое в requirements.md сохранены.
+
+## Реализовано
+
+- AppSettings на Pydantic Settings в Infrastructure: environment выше
+  явного/user .env, затем defaults; пустые значения используют defaults.
+  LOCALAPPDATA → APPDATA → home/AppData/Local; data/cache/models/logs/temp.
+  Абсолютные переопределения, Unicode/пробелы, UTF-8/BOM, воспроизводимость вне cwd.
+- Default .env — стандартный user-data каталог LocalTranscriber/.env.
+  Cwd .env не читается автоматически; CLI doctor --env-file задаёт явный файл.
+  Проверены синтаксис и размер <=1 MiB; повреждённый конфиг не принимается частично.
+- Настройки локальной PostgreSQL, executable paths/timeout, device/GPU index,
+  model name/path и precision. Пароль и DSN — SecretStr без repr.
+  Вывод ошибок не содержит input values, credentials, DSN или stderr инструментов.
+- doctor с девятью независимыми результатами: Python, Windows, каталоги,
+  ffmpeg, ffprobe, NVIDIA-драйвер, PostgreSQL, CUDA/CTranslate2, модель.
+  Статусы OK/MISSING/ERROR/SKIP не смешивают driver, CUDA и inference.
+- Subprocess без shell, timeout, скрытые окна Windows; аргументы не разбиваются
+  по пробелам. Windows .bat/.cmd/.ps1 для инструментов отклоняются.
+  PG/LOCAL_TRANSCRIBER env не передаются дочерним инструментам.
+- PostgreSQL: реальная readiness-проверка pg_isready без SQL и credentials;
+  localhost/loopback only. Ошибочный, внешний или многосерверный DSN даёт ERROR.
+  Query/fragment/port=0 отвергаются. Authentication/БД/схема относятся к 03.
+- При установленном CTranslate2 CUDA count проверяется отдельным Python -I -B
+  с timeout. Модель проверяется только локально по непустым model.bin/config.json/
+  tokenizer.json и синтаксису JSON; веса не читаются, inference не запускается.
+- По умолчанию doctor не создаёт пользовательских каталогов/логов.
+  --dry-run отключает все subprocess и создание. --create-dirs явно создаёт
+  только настроенные каталоги; существующие файлы сохраняются, удалений нет.
+- Существующие точки входа, --version/--help и ленивые импорты сохранены.
+  Doctor exit 0 означает завершённый отчёт, даже с MISSING/ERROR.
+  Ошибка загрузки настроек даёт exit 2 и безопасную диагностику без traceback.
+- Прямые лёгкие runtime зависимости закреплены: pydantic 2.13.5,
+  pydantic-settings 2.15.0, python-dotenv 1.2.4.
+  uv.lock фиксирует 20 записей; pydantic-core 2.46.5 и остальные transitive
+  установлены только в существующую .venv. Python 3.14 совместимость этих
+  настроек подтверждена реальными импортами/тестами, не только metadata.
+- Добавлены test_settings.py и test_doctor.py: 66 новых тестовых случаев;
+  сохранённые тесты CLI адаптированы к doctor и runtime dependencies.
+  Итого 167 тестов. Реальные subprocess/CLI, synthetic fixtures и mocks явно разделены.
+- README, .env.example, архитектура, решения и матрица соответствия обновлены.
+  Бизнес-логика, ORM/миграции/репозитории, GUI, STT и ML/CUDA установка не добавлялись.
+
+## Выполненные проверки
+
+Из корня проекта, PATH/VIRTUAL_ENV указывают на существующую .venv.
+UV_CACHE_DIR=.cache/uv; UV_PYTHON_DOWNLOADS=never;
+PYTEST_DEBUG_TEMPROOT — новый уникальный каталог tmp/step02-*.
+Глобальный Python, пользовательский Temp и ACL не изменялись.
+
+| Команда / проверка | Статус | Фактический результат |
+| --- | --- | --- |
+| python --version; executable/prefix/GIL/x64 | PASS | Python 3.14.4, проектная .venv. |
+| uv sync; uv sync --offline после фиксации direct dependencies | PASS | 20 записей lock, установлены только лёгкие настройки и пакет проекта. |
+| uv run pytest -q | PASS | 167 passed in 14.94s, exit 0; пропусков/предупреждений нет. |
+| uv run ruff check . | PASS | All checks passed!, exit 0. |
+| uv run ruff format --check . | PASS | 23 files already formatted, exit 0. |
+| git diff --check | PASS | Exit 0; только существующие core.autocrlf предупреждения LF/CRLF. |
+| uv lock --check --offline | PASS | Resolved 20 packages in 1ms; lock согласован. |
+| python -m pip check | PASS | No broken requirements found. |
+| uv run python -m local_transcriber --version / --help | PASS | Версия 0.0.1, справка с doctor; старые launcher также проверены pytest. |
+| uv run python -m local_transcriber doctor --help | PASS | --env-file, --dry-run, --create-dirs; явные режимы, exit 0. |
+| uv run python -m local_transcriber doctor | PASS | Все 9 результатов, exit 0; реальные статусы машины ниже. |
+| uv run python -m local_transcriber doctor --env-file .env.example | PASS | Пример загружается; диагностика без паролей/traceback. |
+| uv run python -m local_transcriber doctor --env-file .env.example --dry-run | PASS | Внешние проверки SKIP; чтение локальных путей/модели, без создания пользовательских данных. |
+| Unit env/subprocess и ошибки | PASS | Missing tools/GPU/model; timeout/permissions/invalid response; malformed DSN/settings/env; UTF-8/BOM/Windows paths; credentials не выводятся. |
+| Реальные CLI/subprocess интеграции | PASS | Unicode/пробелы, module/console/wrapper doctor; CLI без GPU, safe errors, сохранность sentinel файлов. |
+| Dry-run и явное создание каталогов | PASS | Нулевой subprocess/нет новых data dirs; создание идемпотентно, отказ прав/путь-файл диагностируются без удаления. |
+| Сохранность материалов и Git | PASS | HEAD 545d359 и индекс не менялись; src/main.py, init, тесты 00, AGENTS, .gitignore, ORIGINAL_TZ и исходник промптов не изменены. |
+| Документы/ссылки/FR/NFR/.gitignore/.env.example | PASS | Сохранённые тесты аудита проходят; все новые ссылки на артефакты корректны, пример без credentials. |
+| Реальная pg_isready readiness | NOT RUN | Инструмент не найден в PATH; doctor сообщает MISSING. Наличие самой службы/БД не установлено этим результатом. Коды/timeout/DSN проверены unit-тестами. |
+| Реальный CUDA/CTranslate2 runtime / inference | NOT RUN | CTranslate2 не установлен; doctor сообщает MISSING. По заданию ML/CUDA не устанавливались. Проверки установленного backend смоделированы unit-тестами; inference — 06. |
+| Реальная модель / STT | NOT RUN | Локальной модели нет. Диагностика MISSING реальная; synthetic файлы проверяют только инспекцию/повреждение manifest, не загрузку весов. |
+| Реальные FFmpeg/ffprobe version probes | NOT RUN | Инструменты не найдены в PATH. Missing и контракты subprocess/ответов проверены; медиаобработка — 04–05. |
+
+Отсутствующие зависимости на 02 явно необязательны по промпту: обязательная
+проверка здесь — диагностика их отсутствия без crash. Эти NOT RUN не объявлены
+успешными integration/hardware испытаниями и не блокируют завершение 02.
+
+## Фактическая Windows-среда
+
+- Python 3.14.4: OK.
+- Windows: OK.
+- NVIDIA-драйвер: OK, nvidia-smi сообщил 596.21; inference не проверялся.
+- ffmpeg/ffprobe и pg_isready: MISSING в PATH.
+- CTranslate2 и локальная модель: MISSING.
+- Сетевых загрузок doctor не выполнял. Загружены только явно необходимые
+  лёгкие Python-пакеты при uv sync; аудио/видео/транскрипты не передавались.
+
+## Найденные ошибки и регрессии
+
+1. Первый полный pytest: 149 passed, 1 failed. Double-quoted Windows .env
+   преобразовал backslash sequences в управляющие символы пути. Валидация
+   теперь отвергает такие пути; добавлены тесты / и single quotes, безопасного
+   отказа и сохранности файла. Даны инструкции пользователю.
+2. При проверке DSN обнаружен port=0, который выражение port or 5432 молча
+   заменяло на default. Исправлена явная проверка диапазона; regression для
+   port=0/fragment и отсутствие внешнего подключения.
+3. Python-dotenv может пропустить malformed строку, приняв остальную часть.
+   Добавлена предварительная syntax/UTF-8/size проверка и regression.
+4. После прямой фиксации dependencies metadata сортировала Requires-Dist
+   иначе pyproject: 166 passed, 1 failed. Исправлен тест: сравнивать множество
+   зависимостей, а не порядок. Повторный полный прогон — 167 PASS.
+
+## Критерии приёмки и ручной чек-лист
+
+- [x] Python 3.14 и существующая .venv сохранены.
+- [x] Настройки воспроизводимы и не зависят от cwd.
+- [x] Конфиг-пример и диагностика не содержат паролей/DSN.
+- [x] AppData/LOCALAPPDATA, папки и абсолютные пользовательские пути предусмотрены.
+- [x] Doctor раздельно отражает все обязательные компоненты и отсутствие optional.
+- [x] Unit env/subprocess, реальные CLI и Windows позитивные/негативные сценарии выполнены.
+- [x] Dry-run не создаёт data dirs; явное создание не удаляет/не перезаписывает файлы.
+- [x] CLI/точки входа этапа 01 работают; source media не обрабатываются.
+- [x] pytest/Ruff/lock/pip/Git и документы проверены, выявленные ошибки исправлены.
+- [x] Progress и матрица соответствия актуализированы; значимые решения записаны.
+- [x] Следующий этап, commit и push не выполнялись.
+
+## Ограничения и следующий шаг
+
+Doctor — диагностика, не гарантия готовности всего desktop-приложения.
+OK pg_isready не подтверждает пароль/наличие БД/схему. Model OK означает
+локальную комплектность файлов/JSON; GPU count не заменяет inference.
+Dry-run не проверяет права записи; --create-dirs проверяет их фактическим mkdir,
+возможны частично созданные собственные пустые каталоги при отказе на одном из путей.
+Автоматической очистки или скачивания нет.
+
+Шаг 03 потребует доступной локальной PostgreSQL и отдельной test DB; настройки
+их расположения будут проверены реальным подключением и миграциями только после
+нового разрешения. **READY FOR STEP 03** относится к завершению 02.
+
+## Архив предыдущих этапов
+
+Исторические статусы и запреты ниже относятся к времени до разрешения ШАГА 02.
+Актуальный статус указан выше.
+
+<details>
+<summary>Отчёты ШАГОВ 01 и 00</summary>
+
+# Состояние проекта
+
+Дата: 2026-10-08.
+
+## Текущий шаг
+
 ШАГ 01 V2 — минимальный Python-пакет и инструменты качества.
 Статус: **READY FOR STEP 02**. ШАГ 00 принят новым запросом владельца,
 ШАГ 01 реализован и проверен. Блокирующих проблем нет.
@@ -392,6 +542,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

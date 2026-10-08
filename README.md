@@ -9,7 +9,8 @@
 
 ## Текущее состояние
 
-Пакет поддерживает запуск, справку и вывод версии. Транскрибация, GUI,
+Пакет поддерживает запуск, справку, вывод версии и диагностику doctor.
+Настройки читаются из локального окружения или пользовательского .env. Транскрибация, GUI,
 GPU worker, PostgreSQL и экспорт пока не реализованы.
 Единственный источник статуса этапов и результатов проверок —
 [docs/progress.md](docs/progress.md).
@@ -70,7 +71,8 @@ Git-корень — Transcribation/. Каталог .git ранее перен�
 Используется обычный CPython 3.14 x64 с GIL, >=3.14,<3.15.
 Существующая .venv сохраняется; глобальная установка Python не изменяется.
 Hatchling собирает пакет, uv.lock закрепляет версии dev-инструментов.
-Runtime-зависимостей сейчас нет; тяжёлые AI/CUDA/GUI/БД библиотеки не устанавливаются.
+Runtime-зависимости: Pydantic, Pydantic Settings и python-dotenv, версии закреплены.
+Тяжёлые AI/CUDA/GUI/БД библиотеки не устанавливаются.
 [Совместимость ML](docs/python314_compatibility.md) проверяется на своих этапах.
 
 PowerShell, из корня проекта:
@@ -84,6 +86,8 @@ uv run python -m local_transcriber --help
 uv run python -m local_transcriber
 uv run local-transcriber --version
 uv run python src/main.py --help
+uv run python -m local_transcriber doctor
+uv run python -m local_transcriber doctor --dry-run
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
@@ -104,9 +108,9 @@ python -m venv .venv
 
 Все способы запуска обращаются к одной функции main. --version выводит версию
 установленного пакета; --help и запуск без аргументов показывают справку и дают
-код 0. Неизвестные аргументы, включая ещё не реализованный doctor, дают код 2
-и диагностику в stderr. Сокращения вроде --vers не поддерживаются.
-CLI не загружает модели, не создаёт worker и не читает .env.
+код 0. Неизвестные аргументы дают код 2 и диагностику в stderr.
+Сокращения вроде --vers не поддерживаются. Информационные команды не читают .env.
+doctor читает настройки; модели и worker не загружаются.
 
 ## Проверка установки в чистое окружение
 
@@ -138,7 +142,7 @@ try {
 Git исключает media/, recordings/, models/, data/, transcripts/, exports/,
 logs/, tmp/, backups/ и dumps/. Секреты хранятся локально, никогда в коде.
 .env.example содержит безопасные примеры и пустой пароль.
-Загрузка настроек и выбор пользовательских путей относятся к шагу 02.
+Настройки и пользовательские пути описаны ниже.
 SQL-миграции можно хранить в Git; SQL-дампы помещайте в backups/ или dumps/.
 Медиа и транскрипты не отправляются во внешние сервисы.
 
@@ -156,3 +160,62 @@ uv run pytest -q
 проекта и $env:UV_PYTHON_DOWNLOADS='never'. Offline-проверка:
 uv --cache-dir .cache/uv lock --check --offline.
 Это настройки текущего процесса; глобальный Python и ACL каталогов не меняются.
+
+## Настройки и doctor
+
+Настройки воспроизводимы: environment > выбранный .env > defaults.
+Без --env-file читается только %LOCALAPPDATA%/LocalTranscriber/.env;
+при отсутствии LOCALAPPDATA — APPDATA, затем home/AppData/Local.
+.env из текущего рабочего каталога автоматически не читается.
+
+Default data_dir — тот же пользовательский каталог; cache, models, logs, temp
+находятся внутри него. Переопределения каталогов должны быть абсолютными.
+Default model_path: models_dir/model_name. Загрузка настроек не создаёт каталогов.
+Для .env используйте UTF-8 (BOM поддерживается) и Windows пути с / либо
+одинарными кавычками: 'C:\Users\USER\Рабочие данные'.
+В двойных кавычках обратные слеши обрабатываются как escapes; пути с
+управляющими символами отклоняются. Синтаксически повреждённый .env не принимается.
+
+```powershell
+uv run python -m local_transcriber doctor --env-file .env.example
+uv run python -m local_transcriber doctor --env-file .env.example --dry-run
+# Явно создать только настроенные data/cache/models/logs/temp:
+uv run python -m local_transcriber doctor --create-dirs
+```
+
+doctor по умолчанию выполняет проверки без создания папок/логов и загрузок.
+--dry-run не запускает внешние инструменты, не импортирует CUDA и не создаёт
+каталоги; локальные пути и файлы модели проверяются чтением.
+--create-dirs несовместим с --dry-run. Файлы не удаляются и не перезаписываются.
+
+.env.example перечисляет все переменные LOCAL_TRANSCRIBER_:
+каталоги, исполняемые файлы, timeout 1–30 s, локальную БД, device cuda/cpu,
+gpu_index, model_name, model_path и compute_type.
+Имена исполняемых файлов ищутся в PATH; полный путь передаётся одним аргументом
+без shell. Windows .bat/.cmd/.ps1 для инструментов отклоняются.
+Пароль и DSN скрыты в repr/выводе; ошибки конфигурации не печатают значения.
+Не добавляйте реальные credentials в примеры или Git.
+
+| Статус | Значение |
+| --- | --- |
+| OK | Конкретная проверка успешна, в сообщении указана её граница. |
+| MISSING | Инструмент, GPU или локальные файлы отсутствуют. |
+| ERROR | Ошибка конфигурации, ответ инструмента, права или timeout. |
+| SKIP | Проверка явно отключена dry-run/CPU. |
+
+doctor exit 0 означает, что диагностический отчёт получен, даже с MISSING/ERROR;
+неверная конфигурация даёт exit 2 без traceback. --help/--version не читают .env.
+
+PostgreSQL: укажите pg_isready из установленного PostgreSQL/bin.
+Проверяется только готовность локального сервера принимать подключения.
+Пароль, наличие конкретной БД, SQL и миграции будут проверены в 03.
+Опциональный DSN разрешает postgres/postgresql, один loopback host, корректный
+порт и имя БД; query/fragment и внешние host отклоняются. DSN не передаётся инструменту.
+Отдельные HOST/PORT применяются, если DSN пуст.
+
+NVIDIA проверяется через nvidia-smi. Это не подтверждает CUDA/cuDNN.
+При установленном CTranslate2 get_cuda_device_count выполняется в дочернем Python
+с тайм-аутом. ML-библиотеки автоматически не устанавливаются.
+Модель: только локальные непустые model.bin, config.json и tokenizer.json;
+JSON проверяется, веса не читаются. OK здесь не подтверждает качество модели
+или inference. Сетевых загрузок doctor не выполняет.

@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "Local desktop transcription of long OBS recordings into Russian text."
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
-dependencies = []
+dependencies = ["pydantic==2.13.5", "pydantic-settings==2.15.0", "python-dotenv==1.2.4"]
 
 [project.scripts]
 local-transcriber = "local_transcriber.__main__:main"

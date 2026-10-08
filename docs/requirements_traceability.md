@@ -3,7 +3,7 @@
 Источник — [requirements.md](requirements.md), сверенный с
 [ORIGINAL_TZ.md](ORIGINAL_TZ.md). Ни один FR/NFR не перенумерован.
 «Реализация» указывает распределение по шагам; их результаты находятся в progress.md.
-Ниже добавлены ссылки на артефакты шага 01; они не означают приёмку всего MVP.
+Ниже добавлены ссылки на артефакты шагов 01 и 02; они не означают приёмку всего MVP.
 Статусы — [progress.md](progress.md), названия шагов — [implementation_plan.md](implementation_plan.md).
 
 | Требование | Реализация (шаги) | Приёмка (шаги) | Граница / существенное условие |
@@ -37,7 +37,7 @@
 | §7 / TZ-DB | 03, 08, 10, 14 | 03, 08, 14, 17 | Все семь таблиц, поля и индексы, UUID/FK/ms, транзакции, версии, явное удаление без удаления источника. |
 | §8 / TZ-FLOW | 04, 05, 06, 07, 08, 10, 11 | 15, 17 | Полный цикл импорта → распознавания → сохранения → читаемого текста → экспорта. |
 | §10 / TZ-ERRORS | 02, 04, 05, 06, 08, 09, 11, 14 | 02, 04, 05, 06, 08, 09, 11, 14, 17 | Все 10 отказов таблицы ТЗ; диагностика и лог с job_id без приватного содержимого/пароля. |
-| §11 / TZ-TESTS | 01, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15 | 15, 17 | Unit/integration/E2E; восемь наборов, >=3 ч, >1 GB; WER/CER по RAW, WER <=15% чистой речи — целевой ориентир. |
+| §11 / TZ-TESTS | 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15 | 15, 17 | Unit/integration/E2E; восемь наборов, >=3 ч, >1 GB; WER/CER по RAW, WER <=15% чистой речи — целевой ориентир. |
 | §12 / TZ-ACCEPTANCE | 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16 | 17 | Все 17 критериев MVP обязательны; аудит 00 их не считает выполненными. |
 | §13 / TZ-PLAN | 00 | 00, 17 | Макроэтапы оригинала соответствуют детализации V2, см. implementation_plan.md. |
 | §14 / TZ-FUTURE | вне 00–17 | не gate MVP | Локальная LLM, FTS по БД, расширенная массовая обработка, диаризация, live WASAPI. |
@@ -56,3 +56,20 @@
 | Отказы шага 01: неизвестный аргумент, сокращение, будущая команда | [test_cli.py](../tests/test_cli.py) | test_invalid_command_reports_error_without_changing_files; код 2, stderr, неизменный контрольный файл. |
 | TZ-TESTS §11: тестовая инфраструктура и импорты | [tests/README.md](../tests/README.md), [test_cli.py](../tests/test_cli.py) | Изолированный import smoke, без тяжёлых импортов; pytest/Ruff. Предметные интеграции — позже. |
 | TZ-DELIVERY §15 п.1,2,4,5,8,10: начальные исходники, lock, пример env, команды Windows, тесты, архитектура | [README.md](../README.md), [.env.example](../.env.example), [architecture.md](architecture.md) | Команды запуска и сборки, отсутствие credentials в примере, проверка Markdown-ссылок. Полная поставка — 17. |
+
+## Артефакты и проверки шага 02
+
+| Требование / граница | Артефакт | Проверка и граница приёмки |
+| --- | --- | --- |
+| TZ-STACK / TZ-PATHS / §4.4: настройки и пользовательские каталоги Windows | [settings.py](../src/local_transcriber/infrastructure/settings.py), [.env.example](../.env.example) | test_defaults_do_not_create_files, AppData/home fallback, env priority, UTF-8/BOM, single-quoted Windows paths. |
+| FR-05: параметры device/GPU/model/precision | [settings.py](../src/local_transcriber/infrastructure/settings.py) | Валидация defaults/env, GPU index и моделей. Это конфигурация, не STT из 06. |
+| TZ-ERRORS: отсутствующие FFmpeg/ffprobe/PostgreSQL/GPU/модель | [doctor.py](../src/local_transcriber/infrastructure/doctor.py), [test_doctor.py](../tests/test_doctor.py) | Раздельные OK/MISSING/ERROR/SKIP, timeout/permission/bad response, CLI без GPU. |
+| NFR-04: локальная диагностика без автоматической загрузки | [doctor.py](../src/local_transcriber/infrastructure/doctor.py) | Dry-run без subprocess/файлов, only local PostgreSQL, CUDA в отдельном процессе, model files only. |
+| NFR-05: пароли и сохранность данных | [test_settings.py](../tests/test_settings.py), [test_doctor.py](../tests/test_doctor.py) | SecretStr/repr, безопасные ошибки DSN/env, secret-free subprocess, явное создание каталогов, неизменные sentinel файлы. |
+| TZ-TESTS: положительные/негативные Windows сценарии | [test_settings.py](../tests/test_settings.py), [test_doctor.py](../tests/test_doctor.py) | .env escapes и синтаксис, DSN port=0, кириллица/пробелы, реальные процессы и все launcher. |
+| CLI/точки входа шага 01 сохраняются | [__main__.py](../src/local_transcriber/__main__.py), [test_cli.py](../tests/test_cli.py) | Версия/справка и import smoke сохранены; doctor добавлен с ленивой загрузкой Infrastructure. |
+| TZ-DELIVERY: настройки и инструкции | [README.md](../README.md), [uv.lock](../uv.lock) | Лёгкие настройки закреплены; ни CUDA/ML, ни миграции/репозитории не добавлены. |
+
+Итоговые статусы и фактическая среда — [progress.md](progress.md).
+pg_isready не подтверждает authentication/схему БД; полная приёмка БД — шаг 03.
+Модель/CUDA checks не подтверждают inference — шаги 06–07.

@@ -76,3 +76,18 @@
 Изолированный Python -I игнорирует PYTHON*; тесты явно задают -X utf8
 для чтения русской справки на Windows. Это решение тестовой обвязки,
 не изменение глобальных настроек Python. Фактические результаты — progress.md.
+
+## Настройки и диагностика, ШАГ 02 — 2026-10-08
+
+| ID | Решение | Статус | Обоснование |
+| --- | --- | --- | --- |
+| ADR-023 | AppSettings в Infrastructure: env > явный/user .env > defaults; LOCALAPPDATA/APPDATA/home, абсолютные data/cache/models/logs/temp. Cwd .env не загружается автоматически. | Принято | Независимость от cwd и защищённого Program Files, воспроизводимые локальные пути. Пароль/DSN — SecretStr; вывод ошибок без значений. |
+| ADR-024 | PostgreSQL doctor использует pg_isready readiness без credentials и SQL. Подключение, authentication и миграции остаются 03. | Принято | Реальная безопасная диагностика без внедрения ORM/репозиториев будущего этапа. Нет pg_isready — честный MISSING, не имитация успешного подключения. |
+| ADR-025 | Doctor не создаёт каталогов по умолчанию; --dry-run отключает subprocess; --create-dirs явно создаёт только настроенные каталоги и несовместим с dry-run. Exit 0 — отчёт получен, не вся среда готова; неверный конфиг — 2. | Принято | Отсутствующие внешние зависимости не обрушивают CLI. Нет скачиваний, удаления или записи логов; повторное создание сохраняет файлы. |
+| ADR-026 | NVIDIA-драйвер, CUDA/CTranslate2 и модель — независимые проверки. CUDA count в изолированном дочернем Python с timeout; локальные файлы модели без загрузки весов. | Принято | Driver OK не означает CUDA/inference OK. Тяжёлые импорты не попадают в главный процесс, наличие файлов не выдаётся за рабочее STT. |
+| ADR-027 | Windows .env пути: / либо одинарные кавычки; управляющие символы, повреждённый синтаксис и файл >1 MiB отклоняются. Subprocess без shell, .bat/.cmd/.ps1 запрещены на Windows. | Принято | Regression: двойные кавычки превратили backslash последовательности в управляющие символы. Не принимать молча повреждённые пути/частичный конфиг. |
+
+Источники: [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/),
+[pg_isready](https://www.postgresql.org/docs/current/app-pg-isready.html),
+[CTranslate2 CUDA device count](https://opennmt.net/CTranslate2/python/ctranslate2.get_cuda_device_count.html).
+Предыдущие решения сохраняются как история; фактические результаты находятся в progress.md.
