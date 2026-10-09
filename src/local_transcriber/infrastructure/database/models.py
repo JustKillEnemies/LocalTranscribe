@@ -54,7 +54,8 @@ class AudioStream(Base):
         UniqueConstraint("media_file_id", "stream_index", name="uq_audio_media_index"),
         UniqueConstraint("id", "media_file_id", name="uq_audio_id_media"),
         CheckConstraint(
-            "stream_index >= 0 AND sample_rate > 0 AND channels > 0", name="ck_audio_values"
+            "stream_index >= 0 AND sample_rate > 0 AND channels > 0 AND start_time_ms >= 0",
+            name="ck_audio_values",
         ),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -65,6 +66,7 @@ class AudioStream(Base):
     codec: Mapped[str] = mapped_column(String)
     sample_rate: Mapped[int] = mapped_column(Integer)
     channels: Mapped[int] = mapped_column(Integer)
+    start_time_ms: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     role_label: Mapped[str | None] = mapped_column(String)
     language_tag: Mapped[str | None] = mapped_column(String)
     title: Mapped[str | None] = mapped_column(Text)

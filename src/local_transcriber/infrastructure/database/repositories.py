@@ -155,6 +155,7 @@ class MediaRepository:
                             row.channels,
                             row.language_tag,
                             row.title,
+                            row.start_time_ms,
                         )
                         for row in stored_streams
                     ],
@@ -171,6 +172,7 @@ class MediaRepository:
                             row.channels,
                             row.language,
                             row.title,
+                            row.start_time_ms,
                         )
                         for row in sorted(media.audio_streams, key=lambda item: item.stream_index)
                     ],
@@ -188,6 +190,7 @@ class MediaRepository:
                         codec=stream.codec,
                         sample_rate=stream.sample_rate,
                         channels=stream.channels,
+                        start_time_ms=stream.start_time_ms,
                         language_tag=stream.language,
                         title=stream.title,
                     )

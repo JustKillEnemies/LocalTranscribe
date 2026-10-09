@@ -57,6 +57,16 @@ def test_parse_mixed_streams_preserves_real_indices_and_labels(tmp_path: Path) -
     assert result.audio_streams[1].title == "Desktop Audio"
 
 
+def test_parse_stream_start_pts_normalizes_negative_timeline(tmp_path: Path) -> None:
+    payload = fixture("mixed_streams.json")
+    assert isinstance(payload, dict)
+    streams = payload["streams"]
+    streams[1]["start_time"] = "1.2504"
+    streams[3]["start_time"] = "-0.125"
+    result = parse_probe(payload, media_file(tmp_path), "v1:test")
+    assert [stream.start_time_ms for stream in result.audio_streams] == [1250, 0]
+
+
 def test_no_audio_is_explainable(tmp_path: Path) -> None:
     with pytest.raises(MediaInspectionError, match="нет аудиодорожек"):
         parse_probe(fixture("no_audio.json"), media_file(tmp_path, "video.mp4"), "v1:test")

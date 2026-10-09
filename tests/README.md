@@ -81,3 +81,17 @@ timeout/kill и безопасные ошибки. Это не выдаётся 
 затем данные дважды импортируются в настоящую PostgreSQL. Укажите пути через
 `LOCAL_TRANSCRIBER_FFMPEG_PATH` и `LOCAL_TRANSCRIBER_FFPROBE_PATH`; при строгом
 runner отсутствие инструмента означает FAIL, в обычном pytest — явный SKIP.
+
+## Потоковое декодирование, шаг 05
+
+`test_ffmpeg_decoder.py` сочетает unit doubles и настоящий FFmpeg. Unit-сценарии
+проверяют nonzero exit, усечённый PCM sample, inactivity timeout, отсутствующий
+источник, границы диапазона и вычисляемый bounded-buffer limit. Integration
+создаёт audio-only MKV: 440 Hz с PTS 0 и 880 Hz с PTS 1000 ms, читает дорожки
+раздельно и проверяет 16 kHz mono, длительность и абсолютные отметки. Отдельный
+сценарий отменяет чтение после первого блока и проверяет завершение child process.
+
+Для строгого запуска задайте `PYTEST_REQUIRE_FFMPEG=1` и
+`LOCAL_TRANSCRIBER_FFMPEG_PATH`. `scripts/check_postgresql.py` автоматически
+использует portable build из игнорируемого `tmp/step04-tools`, если он существует,
+либо системный FFmpeg, и запрещает SKIP этой интеграции.

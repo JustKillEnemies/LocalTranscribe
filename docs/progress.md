@@ -4,87 +4,82 @@
 
 ## Текущий шаг
 
-ШАГ 04 V2 — FFprobe: медиаинспекция и импорт.
-Статус: **READY FOR STEP 05**. Шаг 03 принят запросом владельца.
-Шаг 04 реализован и проверен настоящими FFmpeg 9.0.2, ffprobe и PostgreSQL 18.3.
-ШАГ 05 не начат и требует отдельного разрешения.
-Среда: существующая .venv, CPython 3.14.4 x64 с GIL.
+ШАГ 05 V2 — FFmpeg: потоковое декодирование дорожек.
+Статус: **READY FOR STEP 06**. ШАГ 05 реализован и проверен настоящими
+FFmpeg 9.0.2, ffprobe и PostgreSQL 18.3. ШАГ 06 не начат и требует отдельного
+разрешения. Среда: существующая .venv, CPython 3.14.4 x64 с GIL.
 
 ## Реализовано
 
-- `MediaInspector`: MKV/MP4/MOV/WAV/MP3/M4A/FLAC/WebM, проверка файла,
-  безопасный ffprobe без shell, timeout/kill, ограничение JSON 4 MiB и скрытый stderr.
-- Длительность в integer ms, container/size, все audio streams с реальным
-  stream_index, codec/channels/sample_rate/language/title. Video/subtitle не
-  превращаются в audio ordinal; отсутствие аудио — понятная ошибка.
-- Fingerprint v1: size + mtime_ns + BLAKE2b первых/последних 1 MiB; файл
-  повторно проверяется после ffprobe. Импорт не декодирует и не читает файл целиком.
-- Application `ImportMedia`, транзакционный `MediaRepository`, CLI `inspect <path>`
-  и `import <path>`. Повтор возвращает тот же UUID без дублей; возможная коллизия
-  с другими metadata отклоняется и не меняет сохранённые данные.
-- Миграция `0002_media_import`: UNIQUE fingerprint и nullable language_tag/title.
-- Saved ffprobe fixtures и реальные integration tests с synthetic MKV:
-  video stream 0, две независимые audio streams 1/2, разные sample rate, Unicode path.
-- Повреждённый файл, no audio, invalid JSON/structure, oversized response,
-  timeout, missing tool/file, unsupported extension, PostgreSQL conflict/rollback.
-- Архитектура, ADR-035–039, README, tests README и матрица требований обновлены.
-  FFmpeg decoding, PCM, выбор/смешивание, VAD/STT/GUI не реализованы.
+- `MediaDecoder` Protocol и `FFmpegMediaDecoder`: выбранный реальный
+  `stream_index`, s16le mono 16 kHz, integer-ms `AudioBlock`.
+- Диапазон — абсолютный half-open interval до 15 минут; рабочее значение 5 минут.
+  Положительный initial PTS компенсируется, отрицательный/отсутствующий
+  нормализуется к нулю. `start_time_ms` сохраняется миграцией `0003_audio_timeline`.
+- FFmpeg запускается с `shell=False` и `-nostdin`. stdout читает отдельный thread
+  в bounded queue, stderr — tempfile; обработаны EOF, nonzero exit, truncated PCM,
+  missing source/track, inactivity timeout, cancel и ранний выход потребителя.
+- Context manager гарантирует terminate/wait и kill fallback. Полный WAV/video не
+  создаётся и не кэшируется; Python-side PCM ограничен размером блока и очереди.
+- Реальная integration fixture: MKV с дорожками 440/880 Hz, вторая начинается с
+  PTS 1000 ms; проверены отдельное чтение, 500 ms PCM, 16 kHz/mono и абсолютные времена.
+- README, архитектура, ADR-040–043, тестовая документация и матрица требований обновлены.
+  STT, VAD, worker, GUI и оркестрация следующих диапазонов не реализовывались.
 
 ## Выполненные проверки
 
-Portable FFmpeg 9.0.2 essentials загружен только в игнорируемый `tmp/step04-tools`,
-архив проверен по опубликованному SHA-256. Системная установка не менялась.
-PostgreSQL runner создал собственный SCRAM-кластер/test DB на loopback и остановил
-его; рабочая БД и системная служба не изменялись.
+Изолированный runner создал собственный SCRAM PostgreSQL cluster/test DB на loopback,
+выполнил проверки и остановил его. Рабочая БД и системная служба не менялись.
+Portable FFmpeg/ffprobe используются только из игнорируемого `tmp/step04-tools`.
 
 | Команда / проверка | Статус | Фактический результат |
 | --- | --- | --- |
 | python --version | PASS | Python 3.14.4 из существующей .venv. |
-| uv run pytest -q | PASS | 292 passed in 17.09s, без SKIP, на реальных PostgreSQL/FFmpeg. |
-| uv run pytest tests/test_media.py tests/test_cli.py tests/test_database_unit.py -q | PASS | 129 passed in 4.94s. |
-| uv run pytest tests/test_postgresql.py -q | PASS | 24 passed in 7.80s; реальные PG 18.3 + FFmpeg/ffprobe 9.0.2. |
-| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS | `0002_media_import (head)`, schema diff отсутствует. |
-| Synthetic MKV inspect/import/repeat | PASS | Реальные stream indices 1/2, rates 48000/44100, language/title и один MediaFile. |
-| Повреждённый MKV | PASS | FFprobe error безопасен; ранее импортированная запись/исходник сохранены. |
+| uv run pytest -q | PASS | 302 passed in 18.86s, без SKIP; реальные FFmpeg и PostgreSQL. |
+| uv run pytest tests/test_database_unit.py -q | PASS | 83 passed in 0.92s. |
+| uv run pytest tests/test_postgresql.py -q | PASS | 24 passed in 7.63s; PostgreSQL 18.3. |
+| tests/test_ffmpeg_decoder.py | PASS | 9 сценариев в полном suite: 3 реальные FFmpeg integration и 6 unit. |
+| Две дорожки + initial PTS | PASS | 440/880 Hz не перепутаны; 16 kHz mono; абсолютный интервал 1000–1500 ms с допустимой суб-ms границей ресемплинга. |
+| Cancel / child cleanup | PASS | После `MediaDecodeCancelled` реальный дочерний FFmpeg имеет завершённый return code. |
+| Bounded buffer | PASS | Для test config 100 ms/queue 2 лимит Python-side PCM = 9600 bytes; чтение фиксированными блоками. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS | `0003_audio_timeline (head)`, schema diff отсутствует. |
 | uv run ruff check . | PASS | All checks passed. |
-| uv run ruff format --check . | PASS | 40 files formatted (итог повторяется после документации). |
+| uv run ruff format --check . | PASS | 45 files already formatted. |
 | git diff --check | PASS | Ошибок whitespace нет; только предупреждения core.autocrlf. |
 
 ## Исправленные ошибки
 
-1. Новая UNIQUE fingerprint выявила старый test helper, который назначал один
-   fingerprint разным synthetic media. Fixtures получают уникальные значения.
-2. Fingerprint дополнительно пересчитывается после ffprobe: изменение файла между
-   fingerprint и metadata больше не сохраняет несогласованную запись.
+1. Короткий 500 ms сигнал после ресемплинга может отличаться на несколько samples
+   из-за time base; длительность проверяется с допуском 1 ms, а не ложным требованием
+   ровно 8000 samples.
+2. Последний непустой PCM-блок короче 1 ms теперь получает корректный положительный
+   integer-ms interval вместо `end_ms == start_ms`.
+3. Initial PTS ранее не сохранялся при импорте; добавлены ffprobe `start_time`,
+   доменное поле, DB column/CHECK и миграционный цикл.
 
 ## Ограничения и нерешённые вопросы
 
-- Быстрый частичный fingerprint теоретически коллизионен. Конфликт metadata
-  блокируется, но одинаковые size/mtime/краевые 2 MiB и metadata неразличимы.
-- Перемещённый неизменный файл считается тем же медиа; сохранённый путь автоматически
-  не обновляется. Политика relink относится к обработке отсутствующего источника.
-- Проверка свободного места нужна перед созданием временного PCM в шаге 05;
-  шаг 04 создаёт лишь bounded tempfile ответа ffprobe.
-- Реальный файл >1 GB и все восемь контейнеров отдельно не прогонялись: контракты
-  расширений/JSON проверены unit, реальный MKV — integration; большие наборы — шаг 15.
-- Постоянная рабочая PostgreSQL не использовалась, так как credentials AppSettings
-  не настроены. Изолированная настоящая PostgreSQL полностью проверила persistence.
-- Блокирующих проблем для ШАГА 04 нет.
+- Реальный файл >1 GB и запись >=60 минут не прогонялись; архитектурный bounded
+  buffer проверен unit и коротким реальным MKV. Нагрузочная приёмка относится к 15.
+- Точность seek ограничена time base/кодеком контейнера; отметки считаются по числу
+  выданных 16 kHz samples, а последняя граница может отличаться менее чем на 1 ms.
+- API декодирует один диапазон одной дорожки. Последовательный pipeline, overlap,
+  checkpoints и смешивание выбранных дорожек относятся к 08–09/12 и не добавлены.
+- Блокирующих проблем для ШАГА 06 нет.
 
 ## Критерии готовности
 
-- [x] Все форматы этапа допускаются, вход проверяется, ffprobe безопасен.
-- [x] Все аудиопотоки, реальные индексы и labels собираются и сохраняются.
-- [x] CLI inspect/import работает через существующие AppSettings/точки входа.
-- [x] Импорт транзакционен и идемпотентен; исходный файл не меняется.
-- [x] Позитивные/негативные unit и реальные integration tests выполнены.
-- [x] Миграция и все обязательные проверки проходят.
-- [ ] Владелец принял ШАГ 04 и отдельно разрешил ШАГ 05.
+- [x] Конкретные stream_index не путаются на реальном двухдорожечном MKV.
+- [x] Выход — bounded s16le mono 16 kHz с абсолютными integer-ms timestamps.
+- [x] EOF, exit code, missing track/source, truncated PCM, timeout и cancel обработаны.
+- [x] Дочерний процесс завершается при успехе, ошибке, отмене и выходе из context manager.
+- [x] Миграция initial PTS и реальный Alembic/PostgreSQL цикл проходят.
+- [x] Полный pytest, Ruff и git diff --check проходят.
+- [ ] Владелец принял ШАГ 05 и отдельно разрешил ШАГ 06.
 
 ## Следующий этап
 
-Только после явного разрешения — ШАГ 05: потоковое декодирование выбранной
-дорожки FFmpeg в bounded PCM. В этой задаче он не начат.
+Только после явного разрешения — ШАГ 06: STT contract и faster-whisper на RTX 4060 Ti.
 
 <details>
 <summary>История завершённых шагов 00–03</summary>

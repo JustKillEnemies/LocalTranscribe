@@ -59,6 +59,20 @@ def _milliseconds(value: object) -> int:
     return int((duration * 1000).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def _stream_start_ms(value: object) -> int:
+    """Normalize absent or negative container PTS to the non-negative app timeline."""
+    if value is None or value == "N/A":
+        return 0
+    try:
+        timestamp = Decimal(str(value))
+    except InvalidOperation, ValueError:
+        raise MediaInspectionError("FFprobe вернул некорректный стартовый PTS.") from None
+    if not timestamp.is_finite():
+        raise MediaInspectionError("FFprobe вернул некорректный стартовый PTS.")
+    milliseconds = int((timestamp * 1000).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return max(0, milliseconds)
+
+
 def _positive_int(value: object, field: str) -> int:
     try:
         parsed = int(str(value))
@@ -99,6 +113,7 @@ def parse_probe(payload: object, path: Path, fingerprint: str) -> MediaInfo:
                 channels=_positive_int(stream.get("channels"), "channels"),
                 language=language,
                 title=title,
+                start_time_ms=_stream_start_ms(stream.get("start_time")),
             )
         )
     if not streams:
@@ -137,7 +152,7 @@ class MediaInspector:
                 "-v",
                 "error",
                 "-show_entries",
-                "format=format_name,duration:stream=index,codec_type,codec_name,sample_rate,channels:stream_tags=language,title",
+                "format=format_name,duration:stream=index,codec_type,codec_name,sample_rate,channels,start_time:stream_tags=language,title",
                 "-of",
                 "json",
                 str(path),

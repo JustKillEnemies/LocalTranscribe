@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 from pathlib import Path
@@ -47,12 +48,25 @@ def main() -> int:
         PGPASSWORD=password,
         PGCONNECT_TIMEOUT="5",
         PYTEST_REQUIRE_POSTGRES="1",
+        PYTEST_REQUIRE_FFMPEG="1",
         PATH=str(root / ".venv/Scripts") + os.pathsep + environment["PATH"],
         VIRTUAL_ENV=str(root / ".venv"),
         UV_CACHE_DIR=str(root / ".cache/uv"),
         UV_PYTHON_DOWNLOADS="never",
         PYTEST_DEBUG_TEMPROOT=str(work / "pytest"),
     )
+    portable_bin = root / "tmp/step04-tools/ffmpeg-9.0.2-essentials_build/bin"
+    for variable, executable in (
+        ("LOCAL_TRANSCRIBER_FFMPEG_PATH", "ffmpeg.exe"),
+        ("LOCAL_TRANSCRIBER_FFPROBE_PATH", "ffprobe.exe"),
+    ):
+        if variable not in environment:
+            portable = portable_bin / executable
+            system = shutil.which(executable, path=environment["PATH"])
+            if portable.is_file():
+                environment[variable] = str(portable)
+            elif system is not None:
+                environment[variable] = system
     (work / "pytest").mkdir()
     results: list[dict[str, str | int]] = []
 

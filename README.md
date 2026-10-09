@@ -17,7 +17,10 @@ GPU worker и экспорт пока не реализованы. PostgreSQL-с
 Инспекция поддерживает MKV/MP4/MOV/WAV/MP3/M4A/FLAC/WebM, запускает локальный
 ffprobe и выводит JSON с длительностью, размером, контейнером и всеми аудиопотоками.
 Импорт сохраняет эти метаданные в PostgreSQL идемпотентно по fingerprint.
-Аудио не декодируется; транскрибация и GUI ещё не реализованы.
+Выбранная реальным `stream_index` дорожка декодируется локальным FFmpeg в
+ограниченные блоки PCM s16le mono 16 kHz. Декодер поддерживает абсолютные
+integer-ms интервалы до 15 минут, стартовый PTS, отмену и тайм-аут; полного WAV
+или исходного файла в памяти нет. Транскрибация и GUI ещё не реализованы.
 Единственный источник статуса этапов и результатов проверок —
 [docs/progress.md](docs/progress.md).
 [Исходное ТЗ](docs/ORIGINAL_TZ.md) сохранено и синхронизировано с
@@ -39,7 +42,7 @@ Transcribation/
 ├── migrations/
 │   ├── env.py
 │   ├── script.py.mako
-│   └── versions/0001_initial.py
+│   └── versions/{0001_initial,0002_media_import,0003_audio_timeline}.py
 ├── scripts/check_postgresql.py
 ├── docs/
 │   ├── CODEX_PROMPTS_V2.md
@@ -57,10 +60,13 @@ Transcribation/
 │   └── local_transcriber/
 │       ├── __init__.py
 │       ├── __main__.py
-│       ├── domain/jobs.py
+│       ├── domain/{audio,jobs,media}.py
+│       ├── application/{media_decode,media_import}.py
 │       └── infrastructure/
 │           ├── settings.py
 │           ├── doctor.py
+│           ├── media.py
+│           ├── ffmpeg_decoder.py
 │           └── database/{models,session,repositories}.py
 └── tests/
     ├── README.md
@@ -69,6 +75,7 @@ Transcribation/
     ├── test_settings.py
     ├── test_doctor.py
     ├── test_database_unit.py
+    ├── test_ffmpeg_decoder.py
     └── test_postgresql.py
 ```
 

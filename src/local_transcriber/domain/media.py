@@ -12,6 +12,7 @@ class AudioStreamInfo:
     channels: int
     language: str | None = None
     title: str | None = None
+    start_time_ms: int = 0
 
 
 @dataclass(frozen=True)

@@ -103,3 +103,13 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | NFR-02: импорт длинных файлов без роста RAM | [media.py](../src/local_transcriber/infrastructure/media.py) | Только первые/последние 1 MiB; ffprobe output <=4 MiB через tempfile; без decode. Реальный >1 GB сценарий — 15. |
 | NFR-05: безопасный subprocess/локальность | [media.py](../src/local_transcriber/infrastructure/media.py), [test_media.py](../tests/test_media.py) | Абсолютный путь одним аргументом, shell=False, timeout kill/wait, stderr скрыт; внешние сервисы отсутствуют. |
 | TZ-TESTS §11: FFmpeg/PostgreSQL integration | [test_postgresql.py](../tests/test_postgresql.py) | Настоящие FFmpeg 9.0.2/ffprobe и PostgreSQL 18.3: synthetic MKV с video + 2 audio, inspect/import/repeat/corruption. SQLite/mock не используются. |
+
+## Артефакты и проверки шага 05
+
+| Требование / граница | Артефакт | Проверка и граница приёмки |
+| --- | --- | --- |
+| FR-03: конкретный stream_index, PCM mono 16 kHz, без video transcode | [media_decode.py](../src/local_transcriber/application/media_decode.py), [ffmpeg_decoder.py](../src/local_transcriber/infrastructure/ffmpeg_decoder.py) | Реальный двухдорожечный MKV: независимые 440/880 Hz, s16le mono 16 kHz, 500 ms; nonexistent track — ошибка. Смешивание дорожек не входит в этот этап. |
+| FR-03: исходные времена, 5 минут и диапазон 1–15 минут | [audio.py](../src/local_transcriber/domain/audio.py), [0003_audio_timeline.py](../migrations/versions/0003_audio_timeline.py) | Absolute integer-ms blocks, положительный initial PTS 1000 ms, нормализация отрицательного PTS, запрет диапазона >15 минут. Оркестрация 5-мин участков — 08. |
+| NFR-02: bounded RAM, без полного WAV/video | [ffmpeg_decoder.py](../src/local_transcriber/infrastructure/ffmpeg_decoder.py), [test_ffmpeg_decoder.py](../tests/test_ffmpeg_decoder.py) | Фиксированные read block и queue capacity; тестируемый Python buffer limit 9600 bytes для конфигурации теста. Файл >1 GB не проверялся и остаётся 15. |
+| NFR-03: cancel/timeout/EOF/exit code и сохранность источника | [ffmpeg_decoder.py](../src/local_transcriber/infrastructure/ffmpeg_decoder.py), [test_ffmpeg_decoder.py](../tests/test_ffmpeg_decoder.py) | Реальный cancel подтверждает завершённый child; unit: timeout, nonzero exit, truncated PCM, missing source; decoder только читает источник. |
+| NFR-05: локальный безопасный subprocess | [ffmpeg_decoder.py](../src/local_transcriber/infrastructure/ffmpeg_decoder.py) | `shell=False`, stream index отдельным map-аргументом, `-nostdin`, stderr не раскрывается; внешних API нет. |
