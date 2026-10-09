@@ -9,10 +9,15 @@
 
 ## Текущее состояние
 
-Пакет поддерживает запуск, справку, вывод версии и диагностику doctor.
+Пакет поддерживает запуск, справку, версию, doctor, `inspect` и `import` медиа.
 Настройки читаются из локального окружения или пользовательского .env. Транскрибация, GUI,
 GPU worker и экспорт пока не реализованы. PostgreSQL-схема, Alembic и
 транзакционные репозитории реализованы отдельно; подключения берут AppSettings.
+
+Инспекция поддерживает MKV/MP4/MOV/WAV/MP3/M4A/FLAC/WebM, запускает локальный
+ffprobe и выводит JSON с длительностью, размером, контейнером и всеми аудиопотоками.
+Импорт сохраняет эти метаданные в PostgreSQL идемпотентно по fingerprint.
+Аудио не декодируется; транскрибация и GUI ещё не реализованы.
 Единственный источник статуса этапов и результатов проверок —
 [docs/progress.md](docs/progress.md).
 [Исходное ТЗ](docs/ORIGINAL_TZ.md) сохранено и синхронизировано с
@@ -105,6 +110,8 @@ uv run local-transcriber --version
 uv run python src/main.py --help
 uv run python -m local_transcriber doctor
 uv run python -m local_transcriber doctor --dry-run
+uv run python -m local_transcriber inspect 'C:/Recordings/OBS запись.mkv'
+uv run python -m local_transcriber import 'C:/Recordings/OBS запись.mkv'
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .

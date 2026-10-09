@@ -92,7 +92,6 @@
 [CTranslate2 CUDA device count](https://opennmt.net/CTranslate2/python/ctranslate2.get_cuda_device_count.html).
 Предыдущие решения сохраняются как история; фактические результаты находятся в progress.md.
 
-
 ## PostgreSQL, ШАГ 03 — 2026-10-08
 
 | ID | Решение | Статус | Обоснование |
@@ -110,3 +109,18 @@
 [PostgreSQL constraints](https://www.postgresql.org/docs/current/ddl-constraints.html).
 Фактические результаты и ограничения — progress.md. Worker, импорт медиа,
 распознавание и словарные преобразования этим шагом не реализуются.
+
+## FFprobe и импорт, ШАГ 04 — 2026-10-09
+
+| ID | Решение | Статус | Обоснование |
+| --- | --- | --- | --- |
+| ADR-035 | MediaInspector — Infrastructure adapter; immutable media DTO — чистый Domain; ImportMedia — Application coordinator. | Принято | FFprobe/SQLAlchemy не проникают в Domain, CLI остаётся адаптером и лениво импортирует команды. |
+| ADR-036 | Fingerprint v1 = size + mtime_ns + BLAKE2b первых/последних 1 MiB; повторная проверка после ffprobe. | Принято | Стоимость не растёт с размером OBS-файла. Возможная коллизия явно принимается; конфликт сохранённых метаданных не перезаписывается. |
+| ADR-037 | Идемпотентность обеспечивает UNIQUE(file_fingerprint) + INSERT ON CONFLICT внутри транзакции media+streams. | Принято | Повтор и гонка не создают дубликаты; частичная запись дорожек откатывается. Путь не обновляется автоматически при повторе. |
+| ADR-038 | Сохранять stream.index, language tag и title ffprobe; не выводить audio ordinal за реальный stream index. | Принято | Между аудиопотоками могут находиться video/subtitle streams; labels нужны для выбора, но не означают личность говорящего. |
+| ADR-039 | FFprobe stdout ограничен 4 MiB и пишется во временный файл; subprocess без shell, timeout с kill/wait, stderr пользователю не раскрывается. | Принято | Ограничивает RAM, избегает command injection/zombie process и утечки локальных путей/метаданных. |
+
+Реальная интеграция проверена portable FFmpeg 9.0.2, рекомендованным официальной
+[страницей FFmpeg](https://ffmpeg.org/download.html) Windows build от gyan.dev;
+архив использовался только из игнорируемого tmp и проверен по SHA-256.
+Декодирование PCM, выбор/смешивание дорожек и управление FFmpeg — шаг 05.

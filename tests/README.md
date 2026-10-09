@@ -69,3 +69,15 @@ $env:PYTEST_REQUIRE_POSTGRES = '1'
 uv run pytest tests/test_postgresql.py -q
 ```
 Для обычного запуска с честными SKIP удалите только эту тестовую переменную.
+
+## Медиаинспекция, шаг 04
+
+`test_media.py` использует сохранённые ffprobe JSON и unit doubles процесса:
+mixed streams, реальные индексы, Unicode, no audio, invalid JSON, output limit,
+timeout/kill и безопасные ошибки. Это не выдаётся за реальный FFmpeg.
+
+Реальная проверка находится в `test_postgresql.py`: FFmpeg создаёт короткий MKV
+с video stream 0 и audio streams 1/2 разных sample rate, ffprobe инспектирует,
+затем данные дважды импортируются в настоящую PostgreSQL. Укажите пути через
+`LOCAL_TRANSCRIBER_FFMPEG_PATH` и `LOCAL_TRANSCRIBER_FFPROBE_PATH`; при строгом
+runner отсутствие инструмента означает FAIL, в обычном pytest — явный SKIP.

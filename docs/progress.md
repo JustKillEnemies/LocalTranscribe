@@ -1,5 +1,96 @@
 # Состояние проекта
 
+Дата: 2026-10-09.
+
+## Текущий шаг
+
+ШАГ 04 V2 — FFprobe: медиаинспекция и импорт.
+Статус: **READY FOR STEP 05**. Шаг 03 принят запросом владельца.
+Шаг 04 реализован и проверен настоящими FFmpeg 9.0.2, ffprobe и PostgreSQL 18.3.
+ШАГ 05 не начат и требует отдельного разрешения.
+Среда: существующая .venv, CPython 3.14.4 x64 с GIL.
+
+## Реализовано
+
+- `MediaInspector`: MKV/MP4/MOV/WAV/MP3/M4A/FLAC/WebM, проверка файла,
+  безопасный ffprobe без shell, timeout/kill, ограничение JSON 4 MiB и скрытый stderr.
+- Длительность в integer ms, container/size, все audio streams с реальным
+  stream_index, codec/channels/sample_rate/language/title. Video/subtitle не
+  превращаются в audio ordinal; отсутствие аудио — понятная ошибка.
+- Fingerprint v1: size + mtime_ns + BLAKE2b первых/последних 1 MiB; файл
+  повторно проверяется после ffprobe. Импорт не декодирует и не читает файл целиком.
+- Application `ImportMedia`, транзакционный `MediaRepository`, CLI `inspect <path>`
+  и `import <path>`. Повтор возвращает тот же UUID без дублей; возможная коллизия
+  с другими metadata отклоняется и не меняет сохранённые данные.
+- Миграция `0002_media_import`: UNIQUE fingerprint и nullable language_tag/title.
+- Saved ffprobe fixtures и реальные integration tests с synthetic MKV:
+  video stream 0, две независимые audio streams 1/2, разные sample rate, Unicode path.
+- Повреждённый файл, no audio, invalid JSON/structure, oversized response,
+  timeout, missing tool/file, unsupported extension, PostgreSQL conflict/rollback.
+- Архитектура, ADR-035–039, README, tests README и матрица требований обновлены.
+  FFmpeg decoding, PCM, выбор/смешивание, VAD/STT/GUI не реализованы.
+
+## Выполненные проверки
+
+Portable FFmpeg 9.0.2 essentials загружен только в игнорируемый `tmp/step04-tools`,
+архив проверен по опубликованному SHA-256. Системная установка не менялась.
+PostgreSQL runner создал собственный SCRAM-кластер/test DB на loopback и остановил
+его; рабочая БД и системная служба не изменялись.
+
+| Команда / проверка | Статус | Фактический результат |
+| --- | --- | --- |
+| python --version | PASS | Python 3.14.4 из существующей .venv. |
+| uv run pytest -q | PASS | 292 passed in 17.09s, без SKIP, на реальных PostgreSQL/FFmpeg. |
+| uv run pytest tests/test_media.py tests/test_cli.py tests/test_database_unit.py -q | PASS | 129 passed in 4.94s. |
+| uv run pytest tests/test_postgresql.py -q | PASS | 24 passed in 7.80s; реальные PG 18.3 + FFmpeg/ffprobe 9.0.2. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS | `0002_media_import (head)`, schema diff отсутствует. |
+| Synthetic MKV inspect/import/repeat | PASS | Реальные stream indices 1/2, rates 48000/44100, language/title и один MediaFile. |
+| Повреждённый MKV | PASS | FFprobe error безопасен; ранее импортированная запись/исходник сохранены. |
+| uv run ruff check . | PASS | All checks passed. |
+| uv run ruff format --check . | PASS | 40 files formatted (итог повторяется после документации). |
+| git diff --check | PASS | Ошибок whitespace нет; только предупреждения core.autocrlf. |
+
+## Исправленные ошибки
+
+1. Новая UNIQUE fingerprint выявила старый test helper, который назначал один
+   fingerprint разным synthetic media. Fixtures получают уникальные значения.
+2. Fingerprint дополнительно пересчитывается после ffprobe: изменение файла между
+   fingerprint и metadata больше не сохраняет несогласованную запись.
+
+## Ограничения и нерешённые вопросы
+
+- Быстрый частичный fingerprint теоретически коллизионен. Конфликт metadata
+  блокируется, но одинаковые size/mtime/краевые 2 MiB и metadata неразличимы.
+- Перемещённый неизменный файл считается тем же медиа; сохранённый путь автоматически
+  не обновляется. Политика relink относится к обработке отсутствующего источника.
+- Проверка свободного места нужна перед созданием временного PCM в шаге 05;
+  шаг 04 создаёт лишь bounded tempfile ответа ffprobe.
+- Реальный файл >1 GB и все восемь контейнеров отдельно не прогонялись: контракты
+  расширений/JSON проверены unit, реальный MKV — integration; большие наборы — шаг 15.
+- Постоянная рабочая PostgreSQL не использовалась, так как credentials AppSettings
+  не настроены. Изолированная настоящая PostgreSQL полностью проверила persistence.
+- Блокирующих проблем для ШАГА 04 нет.
+
+## Критерии готовности
+
+- [x] Все форматы этапа допускаются, вход проверяется, ffprobe безопасен.
+- [x] Все аудиопотоки, реальные индексы и labels собираются и сохраняются.
+- [x] CLI inspect/import работает через существующие AppSettings/точки входа.
+- [x] Импорт транзакционен и идемпотентен; исходный файл не меняется.
+- [x] Позитивные/негативные unit и реальные integration tests выполнены.
+- [x] Миграция и все обязательные проверки проходят.
+- [ ] Владелец принял ШАГ 04 и отдельно разрешил ШАГ 05.
+
+## Следующий этап
+
+Только после явного разрешения — ШАГ 05: потоковое декодирование выбранной
+дорожки FFmpeg в bounded PCM. В этой задаче он не начат.
+
+<details>
+<summary>История завершённых шагов 00–03</summary>
+
+# История шага 03
+
 Дата: 2026-10-08.
 
 ## Текущий шаг
@@ -83,7 +174,7 @@ uv run python scripts/check_postgresql.py --postgres-bin 'C:/Program Files/Postg
 | Две дорожки / два задания / progress / сортировка ms | PASS | Изолированные результаты, 50% при одном из двух planned chunks; 100% после обоих, чтение batch_size=1 по абсолютному времени. |
 | RAW UPDATE / каскадное удаление задания | PASS | Реальные SQL UPDATE отвергнуты триггерами; источник/другое задание сохранены. |
 | python -m pip check | PASS | No broken requirements found, exit 0. |
-| ????????? runner / ????????? / secrets audit | PASS | ??? ??????? exit 0; ??????????? postmaster.pid ???????????, pwfile ??????; ??????? private key/token patterns ?? ??????? ? changed/new ??????. |
+| Финальный runner / остановка / secrets audit | PASS | Все команды exit 0; собственный postmaster.pid отсутствует, pwfile удалён; типовые private key/token patterns не найдены в changed/new файлах. |
 | uv run ruff check . | PASS | All checks passed!, exit 0. |
 | uv run ruff format --check . | PASS | 34 files already formatted, exit 0 после исправления формата миграции. |
 | git diff --check | PASS | Exit 0; только core.autocrlf предупреждение LF/CRLF для uv.lock. |
@@ -686,6 +777,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

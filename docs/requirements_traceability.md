@@ -91,3 +91,15 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | NFR-05 / §7.8: секреты и исходные файлы | [session.py](../src/local_transcriber/infrastructure/database/session.py), [test_postgresql.py](../tests/test_postgresql.py) | URL escaping, безопасные ошибки, CASCADE результатов при удалении задания; исходный файл/другое задание сохраняются. |
 | TZ-TESTS §11: реальная изолированная БД | [test_postgresql.py](../tests/test_postgresql.py), [check_postgresql.py](../scripts/check_postgresql.py) | Test DB guard, случайная схема, strict runner; настоящая PostgreSQL без SQLite/mock, собственный процесс останавливается. |
 | TZ-DELIVERY §15: воспроизводимые миграции/инструкции | [alembic.ini](../alembic.ini), [env.py](../migrations/env.py), [README.md](../README.md), [uv.lock](../uv.lock) | Единый AppSettings, без DSN в ini; offline SQL — unit, реальный миграционный цикл — отдельная integration. |
+
+## Артефакты и проверки шага 04
+
+| Требование / граница | Артефакт | Проверка и граница приёмки |
+| --- | --- | --- |
+| FR-01: MKV/MP4/MOV/WAV/MP3/M4A/FLAC/WebM, доступность и ffprobe | [media.py](../src/local_transcriber/infrastructure/media.py), [test_media.py](../tests/test_media.py) | Extension contract, Unicode/пробелы, saved JSON, no audio, invalid JSON, timeout, tool/file/format errors. GUI multi-select/drag-drop — 12. |
+| FR-01: длительность/размер/контейнер/кодеки/число аудиопотоков | [media.py](../src/local_transcriber/domain/media.py), [__main__.py](../src/local_transcriber/__main__.py) | CLI inspect; integer ms, stat size, format_name, codec/rate/channels; реальный MKV. Свободное место проверяется перед временными данными в 05. |
+| FR-02: реальные индексы и labels всех дорожек | [media.py](../src/local_transcriber/infrastructure/media.py), [0002_media_import.py](../migrations/versions/0002_media_import.py) | Mixed video/subtitle/audio fixture даёт 1 и 4; реальный MKV даёт 1 и 2; language/title сохранены. Выбор/роли/смешивание — 05/12. |
+| FR-07 / NFR-03: fingerprint и безопасный повтор | [media_import.py](../src/local_transcriber/application/media_import.py), [repositories.py](../src/local_transcriber/infrastructure/database/repositories.py) | UNIQUE/upsert, одинаковый повтор возвращает тот же UUID, конфликт metadata отклонён, исходник и прежняя запись сохранены. Resume job — 09. |
+| NFR-02: импорт длинных файлов без роста RAM | [media.py](../src/local_transcriber/infrastructure/media.py) | Только первые/последние 1 MiB; ffprobe output <=4 MiB через tempfile; без decode. Реальный >1 GB сценарий — 15. |
+| NFR-05: безопасный subprocess/локальность | [media.py](../src/local_transcriber/infrastructure/media.py), [test_media.py](../tests/test_media.py) | Абсолютный путь одним аргументом, shell=False, timeout kill/wait, stderr скрыт; внешние сервисы отсутствуют. |
+| TZ-TESTS §11: FFmpeg/PostgreSQL integration | [test_postgresql.py](../tests/test_postgresql.py) | Настоящие FFmpeg 9.0.2/ffprobe и PostgreSQL 18.3: synthetic MKV с video + 2 audio, inspect/import/repeat/corruption. SQLite/mock не используются. |

@@ -12,8 +12,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from local_transcriber.domain.jobs import JobStatus, validate_transition
+from local_transcriber.domain.media import MediaInfo
 from local_transcriber.infrastructure.database.models import (
     AudioStream,
+    MediaFile,
     ProcessingChunk,
     TranscriptionJob,
     TranscriptSegment,
@@ -105,6 +107,94 @@ class JobRepository:
         """Explicit DB-only deletion; source media and filesystem stay untouched."""
         with transaction(self._factory) as session:
             session.execute(delete(TranscriptionJob).where(TranscriptionJob.id == job_id))
+
+
+class MediaRepository:
+    def __init__(self, factory: sessionmaker[Session]) -> None:
+        self._factory = factory
+
+    def save(self, media: MediaInfo) -> tuple[UUID, bool]:
+        """Atomically persist metadata; the fingerprint makes retries idempotent."""
+        identifier = uuid4()
+        with transaction(self._factory) as session:
+            inserted = session.execute(
+                insert(MediaFile)
+                .values(
+                    id=identifier,
+                    file_path=str(media.path),
+                    filename=media.filename,
+                    file_size_bytes=media.size_bytes,
+                    duration_ms=media.duration_ms,
+                    container_format=media.container,
+                    audio_streams_count=len(media.audio_streams),
+                    file_fingerprint=media.fingerprint,
+                )
+                .on_conflict_do_nothing(constraint="uq_media_fingerprint")
+                .returning(MediaFile.id)
+            ).scalar_one_or_none()
+            if inserted is None:
+                existing = session.scalar(
+                    select(MediaFile).where(MediaFile.file_fingerprint == media.fingerprint)
+                )
+                if existing is None:
+                    raise PersistenceError("Не удалось получить импортированный файл.")
+                stored_streams = session.scalars(
+                    select(AudioStream)
+                    .where(AudioStream.media_file_id == existing.id)
+                    .order_by(AudioStream.stream_index)
+                ).all()
+                actual = (
+                    existing.file_size_bytes,
+                    existing.duration_ms,
+                    existing.container_format,
+                    [
+                        (
+                            row.stream_index,
+                            row.codec,
+                            row.sample_rate,
+                            row.channels,
+                            row.language_tag,
+                            row.title,
+                        )
+                        for row in stored_streams
+                    ],
+                )
+                expected = (
+                    media.size_bytes,
+                    media.duration_ms,
+                    media.container,
+                    [
+                        (
+                            row.stream_index,
+                            row.codec,
+                            row.sample_rate,
+                            row.channels,
+                            row.language,
+                            row.title,
+                        )
+                        for row in sorted(media.audio_streams, key=lambda item: item.stream_index)
+                    ],
+                )
+                if actual != expected:
+                    raise PersistenceError(
+                        "Конфликт fingerprint: сохранённые метаданные отличаются."
+                    )
+                return existing.id, False
+            session.add_all(
+                [
+                    AudioStream(
+                        media_file_id=identifier,
+                        stream_index=stream.stream_index,
+                        codec=stream.codec,
+                        sample_rate=stream.sample_rate,
+                        channels=stream.channels,
+                        language_tag=stream.language,
+                        title=stream.title,
+                    )
+                    for stream in media.audio_streams
+                ]
+            )
+            return identifier, True
 
 
 class ChunkRepository:

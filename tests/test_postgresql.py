@@ -1,6 +1,8 @@
 """Real PostgreSQL only; each test owns a random schema in a separate test DB."""
 
 import os
+import shutil
+import subprocess
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -14,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from local_transcriber.domain.jobs import JobStatus
+from local_transcriber.domain.media import AudioStreamInfo, MediaInfo
 from local_transcriber.infrastructure.database.models import (
     AudioStream,
     Base,
@@ -27,6 +30,7 @@ from local_transcriber.infrastructure.database.models import (
 from local_transcriber.infrastructure.database.repositories import (
     ChunkRepository,
     JobRepository,
+    MediaRepository,
     SegmentInput,
 )
 from local_transcriber.infrastructure.database.session import (
@@ -36,6 +40,7 @@ from local_transcriber.infrastructure.database.session import (
     session_factory,
     transaction,
 )
+from local_transcriber.infrastructure.media import MediaInspectionError, MediaInspector
 from local_transcriber.infrastructure.settings import ConfigurationError, load_settings
 
 pytestmark = pytest.mark.integration
@@ -99,7 +104,7 @@ def seed(
                 duration_ms=1000,
                 container_format="mkv",
                 audio_streams_count=2,
-                file_fingerprint="fixture",
+                file_fingerprint=f"fixture:{media}",
             )
         )
         session.flush()
@@ -396,6 +401,135 @@ def test_repository_job_transitions(postgres) -> None:
         jobs.transition(identifiers[0], JobStatus.PROCESSING)
     with transaction(factory) as session:
         assert session.get(TranscriptionJob, identifiers[0]).status == "COMPLETED"
+
+
+def test_media_repository_is_idempotent_and_atomic(postgres, tmp_path: Path) -> None:
+    engine, factory, config = postgres
+    path = tmp_path / "OBS запись.mkv"
+    path.write_bytes(b"source remains outside PostgreSQL")
+    metadata = MediaInfo(
+        path=path,
+        filename=path.name,
+        size_bytes=path.stat().st_size,
+        duration_ms=1500,
+        container="matroska,webm",
+        fingerprint="v1:repository-test",
+        audio_streams=(
+            AudioStreamInfo(1, "aac", 48000, 2, "rus", "Микрофон"),
+            AudioStreamInfo(4, "opus", 48000, 1, None, "Desktop Audio"),
+        ),
+    )
+    repository = MediaRepository(factory)
+    identifier, created = repository.save(metadata)
+    repeated, repeated_created = repository.save(metadata)
+    assert (repeated, repeated_created) == (identifier, False)
+    assert created is True
+    with transaction(factory) as session:
+        stored = session.get(MediaFile, identifier)
+        streams = session.scalars(
+            select(AudioStream)
+            .where(AudioStream.media_file_id == identifier)
+            .order_by(AudioStream.stream_index)
+        ).all()
+        assert stored.file_path == str(path)
+        assert stored.audio_streams_count == 2
+        assert [(item.stream_index, item.language_tag, item.title) for item in streams] == [
+            (1, "rus", "Микрофон"),
+            (4, None, "Desktop Audio"),
+        ]
+    conflicting = MediaInfo(
+        path=path,
+        filename=path.name,
+        size_bytes=metadata.size_bytes,
+        duration_ms=999,
+        container=metadata.container,
+        fingerprint=metadata.fingerprint,
+        audio_streams=metadata.audio_streams,
+    )
+    with pytest.raises(PersistenceError, match="Конфликт fingerprint"):
+        repository.save(conflicting)
+    with transaction(factory) as session:
+        assert session.scalar(select(func.count()).select_from(MediaFile)) == 1
+        assert session.scalar(select(func.count()).select_from(AudioStream)) == 2
+    assert path.read_bytes() == b"source remains outside PostgreSQL"
+
+
+def test_real_ffmpeg_two_audio_stream_inspect_and_import(postgres, tmp_path: Path) -> None:
+    engine, factory, config = postgres
+    ffmpeg = shutil.which(os.environ.get("LOCAL_TRANSCRIBER_FFMPEG_PATH", "ffmpeg"))
+    ffprobe = shutil.which(os.environ.get("LOCAL_TRANSCRIBER_FFPROBE_PATH", "ffprobe"))
+    if not ffmpeg or not ffprobe:
+        unavailable("Real FFmpeg/ffprobe are not configured")
+        return
+    media = tmp_path / "OBS две дорожки с пробелами.mkv"
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=16x16:r=10:d=0.3",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000:duration=0.3",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:sample_rate=44100:duration=0.3",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-map",
+            "2:a:0",
+            "-metadata:s:a:0",
+            "language=rus",
+            "-metadata:s:a:0",
+            "title=Микрофон",
+            "-metadata:s:a:1",
+            "title=Desktop Audio",
+            "-c:v",
+            "ffv1",
+            "-c:a",
+            "pcm_s16le",
+            "-y",
+            str(media),
+        ],
+        capture_output=True,
+        timeout=15,
+        check=False,
+        shell=False,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+    )
+    assert result.returncode == 0, "FFmpeg failed to generate the synthetic fixture"
+    inspected = MediaInspector(ffprobe, timeout=10).inspect(media)
+    assert [item.stream_index for item in inspected.audio_streams] == [1, 2]
+    assert [item.sample_rate for item in inspected.audio_streams] == [48000, 44100]
+    assert inspected.audio_streams[0].language == "rus"
+    repository = MediaRepository(factory)
+    identifier, created = repository.save(inspected)
+    assert created is True
+    assert repository.save(inspected) == (identifier, False)
+    with transaction(factory) as session:
+        streams = session.scalars(
+            select(AudioStream)
+            .where(AudioStream.media_file_id == identifier)
+            .order_by(AudioStream.stream_index)
+        ).all()
+        assert [(item.stream_index, item.sample_rate) for item in streams] == [
+            (1, 48000),
+            (2, 44100),
+        ]
+    assert media.is_file() and media.stat().st_size > 0
+    damaged = tmp_path / "повреждённый файл.mkv"
+    damaged.write_bytes(b"not a Matroska stream")
+    with pytest.raises(MediaInspectionError, match="повреждён или не поддерживается"):
+        MediaInspector(ffprobe, timeout=10).inspect(damaged)
+    with transaction(factory) as session:
+        assert session.scalar(select(func.count()).select_from(MediaFile)) == 1
 
 
 @pytest.mark.parametrize("kind", ["audio", "segment", "version", "term"])

@@ -31,6 +31,7 @@ class Base(DeclarativeBase):
 class MediaFile(Base):
     __tablename__ = "media_files"
     __table_args__ = (
+        UniqueConstraint("file_fingerprint", name="uq_media_fingerprint"),
         CheckConstraint(
             "file_size_bytes >= 0 AND duration_ms >= 0 AND audio_streams_count >= 0",
             name="ck_media_sizes",
@@ -65,6 +66,8 @@ class AudioStream(Base):
     sample_rate: Mapped[int] = mapped_column(Integer)
     channels: Mapped[int] = mapped_column(Integer)
     role_label: Mapped[str | None] = mapped_column(String)
+    language_tag: Mapped[str | None] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(Text)
 
 
 class TranscriptionJob(Base):
