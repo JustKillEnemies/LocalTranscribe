@@ -95,3 +95,17 @@ runner отсутствие инструмента означает FAIL, в о�
 `LOCAL_TRANSCRIBER_FFMPEG_PATH`. `scripts/check_postgresql.py` автоматически
 использует portable build из игнорируемого `tmp/step04-tools`, если он существует,
 либо системный FFmpeg, и запрещает SKIP этой интеграции.
+
+## STT, шаг 06
+
+`test_transcription.py` не имитирует готовое распознавание: fake model проверяет
+только контракт adapter, полное потребление lazy generator, относительные ms,
+однократную загрузку, offline gate и управляемый CUDA fallback. Реальный runtime
+проверяет `test_transcription_runtime.py` при `PYTEST_REQUIRE_CUDA=1`: импорты,
+закреплённые версии, CUDA device и доступность float16/int8_float16.
+
+Аппаратный smoke выполнен отдельно от автоматического suite на локальной
+large-v3-turbo и 45-секундном фрагменте пользовательского видео: float16,
+beam 5, два сегмента с относительными ms. Модель лежит в пользовательском
+LocalAppData, исходник/PCM/распознанный текст не коммитятся. Повтор требует тех же
+локальных данных и поэтому не входит в обычный pytest.

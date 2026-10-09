@@ -113,3 +113,13 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | NFR-02: bounded RAM, без полного WAV/video | [ffmpeg_decoder.py](../src/local_transcriber/infrastructure/ffmpeg_decoder.py), [test_ffmpeg_decoder.py](../tests/test_ffmpeg_decoder.py) | Фиксированные read block и queue capacity; тестируемый Python buffer limit 9600 bytes для конфигурации теста. Файл >1 GB не проверялся и остаётся 15. |
 | NFR-03: cancel/timeout/EOF/exit code и сохранность источника | [ffmpeg_decoder.py](../src/local_transcriber/infrastructure/ffmpeg_decoder.py), [test_ffmpeg_decoder.py](../tests/test_ffmpeg_decoder.py) | Реальный cancel подтверждает завершённый child; unit: timeout, nonzero exit, truncated PCM, missing source; decoder только читает источник. |
 | NFR-05: локальный безопасный subprocess | [ffmpeg_decoder.py](../src/local_transcriber/infrastructure/ffmpeg_decoder.py) | `shell=False`, stream index отдельным map-аргументом, `-nostdin`, stderr не раскрывается; внешних API нет. |
+
+## Артефакты и проверки шага 06
+
+| Требование / граница | Артефакт | Проверка и граница приёмки |
+| --- | --- | --- |
+| FR-05: STT port и relative-ms segments | [transcription.py](../src/local_transcriber/application/transcription.py), [transcription.py](../src/local_transcriber/domain/transcription.py) | DTO interval/text/confidence validation; adapter возвращает 125–750 ms относительно PCM range; optional words 120–500 ms с probability. |
+| FR-05: large-v3-turbo/medium/large-v3, ru, beam 5, float16 | [faster_whisper_engine.py](../src/local_transcriber/infrastructure/faster_whisper_engine.py), [settings.py](../src/local_transcriber/infrastructure/settings.py) | Unit подтверждает параметры и одну lazy model load; реальный large-v3-turbo smoke: 45 s, 2 segments, 3.288 s STT, float16 на RTX 4060 Ti. |
+| FR-05 / NFR-02: управляемый int8_float16 fallback | [faster_whisper_engine.py](../src/local_transcriber/infrastructure/faster_whisper_engine.py), [test_transcription.py](../tests/test_transcription.py) | Init и inference CUDA failures дают ровно одну попытку fallback; обе ошибки дают безопасный `CudaUnavailableError`. RTX поддерживает оба compute types. |
+| NFR-04/NFR-05: offline model и локальность | [faster_whisper_engine.py](../src/local_transcriber/infrastructure/faster_whisper_engine.py) | Missing local model не вызывает factory/network; AppSettings задаёт allow_download=false/local_files_only=true. Явный switch протестирован без загрузки весов. |
+| TZ-TESTS: Python 3.14/CUDA runtime | [test_transcription_runtime.py](../tests/test_transcription_runtime.py), [uv.lock](../uv.lock) | faster-whisper 1.2.1, CT2 4.8.2, cuBLAS 12.9.2.10, cuDNN 9.27.0.42; CUDA device=1. 45 s локального русского аудио распознаны offline; исходник/PCM/текст в Git отсутствуют. |

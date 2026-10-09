@@ -133,3 +133,15 @@
 | ADR-041 | Декодирование доступно только как context manager: reader thread + очередь фиксированной ёмкости, stderr tempfile, `shell=False`, terminate/wait и kill fallback. | Принято | Выход FFmpeg читается без deadlock, Python-side PCM ограничен, дочерний процесс завершается при EOF, ошибке, отмене, timeout и раннем выходе потребителя. |
 | ADR-042 | Временная шкала — абсолютные integer ms; `stream.start_time` хранится как `start_time_ms`, отсутствующий/отрицательный PTS нормализуется к 0, запрос обрезается по началу дорожки. | Принято | Поздно начинающиеся OBS-дорожки не сдвигаются к нулю; политика детерминирована при отрицательных/неполных метаданных контейнера. |
 | ADR-043 | Один запрос ограничен 15 минутами, рабочий диапазон 5 минут; FFmpeg выдаёт s16le mono 16 kHz блоками 20–5000 ms. | Принято | Ограничение соответствует FR-03 и не зависит от размера исходного файла; оркестрация последовательных диапазонов относится к шагу 08. |
+
+## STT и faster-whisper, ШАГ 06 — 2026-10-09
+
+| ID | Решение | Статус | Обоснование |
+| --- | --- | --- | --- |
+| ADR-044 | `TranscriptionEngine` — Application port, immutable relative-ms segment — Domain, faster-whisper — Infrastructure adapter. | Принято | Domain/Application не импортируют CTranslate2/NumPy; конкретный engine заменяем и тестируем через порт. |
+| ADR-045 | Default: large-v3-turbo, ru, beam 5, temperature 0, float16; единственный автоматический fallback — явно настроенный int8_float16. | Принято | Соответствует FR-05; fallback наблюдаем через `active_compute_type`, произвольное молчаливое переключение precision запрещено. |
+| ADR-046 | Модель загружается лениво один раз на экземпляр engine; генератор faster-whisper полностью материализуется в tuple до возврата. | Принято | Один будущий worker владеет одной моделью; все inference-ошибки возникают внутри вызова и не теряются из-за непотреблённого lazy generator. |
+| ADR-047 | AppSettings создаёт offline-конфигурацию: только существующий `model_path`, `local_files_only=True`; сеть разрешает только явный `allow_download=True`. | Принято | Вес модели велик, пользователь должен отдельно согласовать загрузку; inference и данные остаются локальными. |
+| ADR-048 | confidence остаётся `None`: faster-whisper segment `avg_logprob` не выдаётся за калиброванную вероятность. | Принято | DTO допускает confidence, но ложная численная уверенность хуже отсутствующего значения. |
+| ADR-049 | Windows CUDA runtime закреплён Python wheels: cuBLAS 12.9.2.10, cuDNN 9.27.0.42; adapter удерживает DLL-directory/WinDLL handles и загружает cuBLAS Lt перед cuBLAS. | Принято | CTranslate2 видел GPU/float16, но первый encode падал без `cublas64_12.dll`. Явная предзагрузка исправлена реальным GPU smoke без изменения системного PATH. |
+| ADR-050 | Precision fallback разрешён только для OOM/неподдерживаемого compute type; missing cuBLAS/cuDNN завершается сразу как CUDA runtime error. | Принято | int8_float16 тоже требует CUDA DLL. Попытка загрузить вторую модель при удерживаемой первой расходовала VRAM и выглядела как зависание; regression test запрещает такой retry. |

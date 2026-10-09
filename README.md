@@ -10,8 +10,8 @@
 ## Текущее состояние
 
 Пакет поддерживает запуск, справку, версию, doctor, `inspect` и `import` медиа.
-Настройки читаются из локального окружения или пользовательского .env. Транскрибация, GUI,
-GPU worker и экспорт пока не реализованы. PostgreSQL-схема, Alembic и
+Настройки читаются из локального окружения или пользовательского .env. Сквозной
+pipeline, GUI, GPU worker и экспорт пока не реализованы. PostgreSQL-схема, Alembic и
 транзакционные репозитории реализованы отдельно; подключения берут AppSettings.
 
 Инспекция поддерживает MKV/MP4/MOV/WAV/MP3/M4A/FLAC/WebM, запускает локальный
@@ -20,7 +20,12 @@ ffprobe и выводит JSON с длительностью, размером, 
 Выбранная реальным `stream_index` дорожка декодируется локальным FFmpeg в
 ограниченные блоки PCM s16le mono 16 kHz. Декодер поддерживает абсолютные
 integer-ms интервалы до 15 минут, стартовый PTS, отмену и тайм-аут; полного WAV
-или исходного файла в памяти нет. Транскрибация и GUI ещё не реализованы.
+или исходного файла в памяти нет. Оркестрация полной транскрибации и GUI ещё не реализованы.
+STT-контракт и offline-first адаптер faster-whisper реализованы: модель лениво
+загружается один раз, по умолчанию `large-v3-turbo`, `ru`, beam 5, float16 с
+явным fallback `int8_float16`. Автоматическая загрузка модели выключена.
+Аппаратный smoke подтверждён на локальной `large-v3-turbo`: 45 секунд русского
+аудио распознаны на RTX 4060 Ti в `float16`.
 Единственный источник статуса этапов и результатов проверок —
 [docs/progress.md](docs/progress.md).
 [Исходное ТЗ](docs/ORIGINAL_TZ.md) сохранено и синхронизировано с
@@ -61,12 +66,13 @@ Transcribation/
 │       ├── __init__.py
 │       ├── __main__.py
 │       ├── domain/{audio,jobs,media}.py
-│       ├── application/{media_decode,media_import}.py
+│       ├── application/{media_decode,media_import,transcription}.py
 │       └── infrastructure/
 │           ├── settings.py
 │           ├── doctor.py
 │           ├── media.py
 │           ├── ffmpeg_decoder.py
+│           ├── faster_whisper_engine.py
 │           └── database/{models,session,repositories}.py
 └── tests/
     ├── README.md
@@ -76,6 +82,8 @@ Transcribation/
     ├── test_doctor.py
     ├── test_database_unit.py
     ├── test_ffmpeg_decoder.py
+    ├── test_transcription.py
+    ├── test_transcription_runtime.py
     └── test_postgresql.py
 ```
 
@@ -99,8 +107,9 @@ Git-корень — Transcribation/. Каталог .git ранее перен�
 Используется обычный CPython 3.14 x64 с GIL, >=3.14,<3.15.
 Существующая .venv сохраняется; глобальная установка Python не изменяется.
 Hatchling собирает пакет, uv.lock закрепляет версии dev-инструментов.
-Runtime-зависимости: Pydantic/Settings/dotenv, SQLAlchemy, Alembic и psycopg[binary];
-версии закреплены. Тяжёлые AI/CUDA/GUI библиотеки не устанавливаются.
+Runtime-зависимости: Pydantic/Settings/dotenv, SQLAlchemy, Alembic, psycopg[binary]
+и faster-whisper 1.2.1 с CUDA 12 cuBLAS/cuDNN runtime и закреплённым графом;
+версии закреплены. Модель, CUDA toolkit и GUI-библиотеки автоматически не устанавливаются.
 PostgreSQL сервер не устанавливается Python-зависимостями.
 [Совместимость ML](docs/python314_compatibility.md) проверяется на своих этапах.
 

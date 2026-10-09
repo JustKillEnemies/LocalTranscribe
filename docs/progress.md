@@ -4,82 +4,105 @@
 
 ## Текущий шаг
 
-ШАГ 05 V2 — FFmpeg: потоковое декодирование дорожек.
-Статус: **READY FOR STEP 06**. ШАГ 05 реализован и проверен настоящими
-FFmpeg 9.0.2, ffprobe и PostgreSQL 18.3. ШАГ 06 не начат и требует отдельного
-разрешения. Среда: существующая .venv, CPython 3.14.4 x64 с GIL.
+ШАГ 06 V2 — STT contract и faster-whisper на RTX 4060 Ti.
+Статус: **READY FOR STEP 07**. Код, зависимости, CUDA runtime и обязательный
+offline GPU smoke на 45 секундах русского аудио проверены. ШАГ 07 не начат и
+требует отдельного разрешения. Среда: .venv, CPython 3.14.4 x64 с GIL.
 
 ## Реализовано
 
-- `MediaDecoder` Protocol и `FFmpegMediaDecoder`: выбранный реальный
-  `stream_index`, s16le mono 16 kHz, integer-ms `AudioBlock`.
-- Диапазон — абсолютный half-open interval до 15 минут; рабочее значение 5 минут.
-  Положительный initial PTS компенсируется, отрицательный/отсутствующий
-  нормализуется к нулю. `start_time_ms` сохраняется миграцией `0003_audio_timeline`.
-- FFmpeg запускается с `shell=False` и `-nostdin`. stdout читает отдельный thread
-  в bounded queue, stderr — tempfile; обработаны EOF, nonzero exit, truncated PCM,
-  missing source/track, inactivity timeout, cancel и ранний выход потребителя.
-- Context manager гарантирует terminate/wait и kill fallback. Полный WAV/video не
-  создаётся и не кэшируется; Python-side PCM ограничен размером блока и очереди.
-- Реальная integration fixture: MKV с дорожками 440/880 Hz, вторая начинается с
-  PTS 1000 ms; проверены отдельное чтение, 500 ms PCM, 16 kHz/mono и абсолютные времена.
-- README, архитектура, ADR-040–043, тестовая документация и матрица требований обновлены.
-  STT, VAD, worker, GUI и оркестрация следующих диапазонов не реализовывались.
+- Immutable `TranscriptionSegment`/`TranscriptionWord`: относительные integer ms,
+  текст, optional confidence/probability; `TranscriptionEngineInfo` фиксирует
+  model/device/фактический compute type/language/beam.
+- Application `TranscriptionEngine` Protocol и Infrastructure
+  `FasterWhisperEngine` без зависимости Domain/Application от ML runtime.
+- Default large-v3-turbo; допустимы medium/large-v3; ru, task=transcribe,
+  beam_size=5, temperature=0, VAD off, optional word timestamps.
+- Одна lazy model load на экземпляр/будущий worker. Lazy generator faster-whisper
+  полностью потребляется внутри adapter и возвращается immutable tuple.
+- Primary float16 и один явный fallback int8_float16 только при OOM или
+  неподдерживаемом compute type. Missing CUDA DLL не запускает вторую модель.
+- Offline-first: AppSettings задаёт локальный model_path, local_files_only=true и
+  allow_download=false. После явного согласия модель загружена в LocalAppData;
+  веса не входят в Git.
+- Windows CUDA DLL loader использует локальные wheels, известные каталоги и
+  удерживаемые WinDLL handles; системный PATH/toolkit/драйвер не меняются.
+- Установлены: faster-whisper 1.2.1, CTranslate2 4.8.2, NumPy 2.5.3, PyAV 19.0.1,
+  ONNX Runtime 1.31.0, cuBLAS 12.9.2.10, cuDNN 9.27.0.42 и NVRTC 12.9.86.
+- README, архитектура, ADR-044–050, compatibility, tests docs и traceability
+  обновлены. VAD, worker/IPC, pipeline и GUI не реализовывались.
+
+## GPU smoke
+
+С разрешения владельца использован 45-секундный фрагмент локального видео из
+`C:\Users\hewle\Videos`, audio stream 1. FFmpeg выдал ровно 45 s PCM mono
+16 kHz. Модель `mobiuslabsgmbh/faster-whisper-large-v3-turbo` работала offline,
+language=ru, task=transcribe, beam=5, temperature=0, compute=float16.
+
+- STT: 3.288 s; decode + STT: 3.664 s.
+- Два сегмента: 0–20320 ms и 20320–45000 ms, без разрыва/выхода за диапазон.
+- Наблюдаемая VRAM: 1441 MiB до процесса, 3710 MiB после inference; delta 2269 MiB.
+- Получен связный русский текст; точность/WER не заявляется.
+- Имя файла, PCM и распознанный текст не сохранены в репозитории.
 
 ## Выполненные проверки
 
-Изолированный runner создал собственный SCRAM PostgreSQL cluster/test DB на loopback,
-выполнил проверки и остановил его. Рабочая БД и системная служба не менялись.
-Portable FFmpeg/ffprobe используются только из игнорируемого `tmp/step04-tools`.
+Полный runner использовал настоящие RTX/CUDA runtime, FFmpeg 9.0.2 и собственный
+временный PostgreSQL 18.3 cluster/test DB. PostgreSQL остановлен; рабочая БД и
+системная служба не менялись.
 
 | Команда / проверка | Статус | Фактический результат |
 | --- | --- | --- |
 | python --version | PASS | Python 3.14.4 из существующей .venv. |
-| uv run pytest -q | PASS | 302 passed in 18.86s, без SKIP; реальные FFmpeg и PostgreSQL. |
-| uv run pytest tests/test_database_unit.py -q | PASS | 83 passed in 0.92s. |
-| uv run pytest tests/test_postgresql.py -q | PASS | 24 passed in 7.63s; PostgreSQL 18.3. |
-| tests/test_ffmpeg_decoder.py | PASS | 9 сценариев в полном suite: 3 реальные FFmpeg integration и 6 unit. |
-| Две дорожки + initial PTS | PASS | 440/880 Hz не перепутаны; 16 kHz mono; абсолютный интервал 1000–1500 ms с допустимой суб-ms границей ресемплинга. |
-| Cancel / child cleanup | PASS | После `MediaDecodeCancelled` реальный дочерний FFmpeg имеет завершённый return code. |
-| Bounded buffer | PASS | Для test config 100 ms/queue 2 лимит Python-side PCM = 9600 bytes; чтение фиксированными блоками. |
+| uv run pytest -q | PASS | 319 passed in 20.61s, без SKIP при строгих CUDA/PostgreSQL/FFmpeg gates. |
+| tests/test_transcription.py | PASS | 16 unit: DTO/words, relative ms, generator, one load, offline, fallback, DLL order и ошибки. |
+| tests/test_transcription_runtime.py | PASS | Реальные версии; CUDA device=1; float16/int8_float16 и NVIDIA runtime packages. |
+| 45 s Russian large-v3-turbo inference | PASS | float16, beam 5, 2 segments, 3.288 s STT, observed +2269 MiB VRAM. |
+| uv lock --check --offline; uv sync --locked --offline | PASS | Lock/runtime согласованы; модель не является Python package. |
+| python -m pip check | PASS | No broken requirements found. |
+| PostgreSQL integration | PASS | 24 passed in 7.35s на отдельной PostgreSQL 18.3. |
 | Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS | `0003_audio_timeline (head)`, schema diff отсутствует. |
 | uv run ruff check . | PASS | All checks passed. |
-| uv run ruff format --check . | PASS | 45 files already formatted. |
+| uv run ruff format --check . | PASS | 50 files already formatted. |
 | git diff --check | PASS | Ошибок whitespace нет; только предупреждения core.autocrlf. |
 
-## Исправленные ошибки
+## Обнаруженные и исправленные ошибки
 
-1. Короткий 500 ms сигнал после ресемплинга может отличаться на несколько samples
-   из-за time base; длительность проверяется с допуском 1 ms, а не ложным требованием
-   ровно 8000 samples.
-2. Последний непустой PCM-блок короче 1 ms теперь получает корректный положительный
-   integer-ms interval вместо `end_ms == start_ms`.
-3. Initial PTS ранее не сохранялся при импорте; добавлены ffprobe `start_time`,
-   доменное поле, DB column/CHECK и миграционный цикл.
+1. CTranslate2 видел RTX и float16, но первый encoder падал: `cublas64_12.dll`
+   отсутствовала. CUDA 12 cuBLAS/cuDNN runtime добавлен в project lock.
+2. Одного `os.add_dll_directory` оказалось недостаточно для внутреннего loader
+   CTranslate2. Adapter предзагружает cuBLAS Lt, затем cuBLAS и cuDNN по абсолютным
+   локальным путям и удерживает handles.
+3. Ошибка missing cuBLAS ошибочно считалась поводом для int8_float16 fallback.
+   Это пыталось держать две модели на 8 GB VRAM и выглядело как зависание. Fallback
+   ограничен OOM/compute-type failures; добавлен regression test `loads == 1`.
+4. Первая попытка использовала неверный repository id и получила 401 без загрузки.
+   Использовано точное mapping faster-whisper 1.2.1:
+   `mobiuslabsgmbh/faster-whisper-large-v3-turbo`.
 
-## Ограничения и нерешённые вопросы
+## Ограничения
 
-- Реальный файл >1 GB и запись >=60 минут не прогонялись; архитектурный bounded
-  buffer проверен unit и коротким реальным MKV. Нагрузочная приёмка относится к 15.
-- Точность seek ограничена time base/кодеком контейнера; отметки считаются по числу
-  выданных 16 kHz samples, а последняя граница может отличаться менее чем на 1 ms.
-- API декодирует один диапазон одной дорожки. Последовательный pipeline, overlap,
-  checkpoints и смешивание выбранных дорожек относятся к 08–09/12 и не добавлены.
-- Блокирующих проблем для ШАГА 06 нет.
+- Оценка VRAM — наблюдаемая до/после, а не инструментированный абсолютный peak.
+- Проверен один 45-секундный фрагмент и float16. Реальный OOM fallback на модели
+  не провоцировался, чтобы не нарушать стабильность; его логика покрыта unit.
+- Точность не гарантируется; WER/CER, разные микрофоны и длинные записи — шаг 15.
+- Абсолютные chunk offsets/checkpoints/worker относятся к шагам 08–09.
+- Блокирующих проблем для ШАГА 07 нет.
 
 ## Критерии готовности
 
-- [x] Конкретные stream_index не путаются на реальном двухдорожечном MKV.
-- [x] Выход — bounded s16le mono 16 kHz с абсолютными integer-ms timestamps.
-- [x] EOF, exit code, missing track/source, truncated PCM, timeout и cancel обработаны.
-- [x] Дочерний процесс завершается при успехе, ошибке, отмене и выходе из context manager.
-- [x] Миграция initial PTS и реальный Alembic/PostgreSQL цикл проходят.
-- [x] Полный pytest, Ruff и git diff --check проходят.
-- [ ] Владелец принял ШАГ 05 и отдельно разрешил ШАГ 06.
+- [x] STT Protocol/DTO, model info и relative integer-ms contract реализованы.
+- [x] ru/transcribe/beam 5/temperature 0, optional word timestamps реализованы.
+- [x] Offline model gate, одна загрузка и полное потребление generator проверены.
+- [x] float16 -> int8_float16 fallback детерминирован и безопасен.
+- [x] Python 3.14/CTranslate2/CUDA DLL runtime работает на RTX 4060 Ti.
+- [x] 45 секунд русского аудио распознаны локально; runtime/VRAM/timestamps записаны.
+- [x] Полный pytest, PostgreSQL/Alembic, Ruff и git diff --check проходят.
+- [ ] Владелец принял ШАГ 06 и отдельно разрешил ШАГ 07.
 
 ## Следующий этап
 
-Только после явного разрешения — ШАГ 06: STT contract и faster-whisper на RTX 4060 Ti.
+Только после явного разрешения — ШАГ 07: Silero VAD и сегментация без потери слов.
 
 <details>
 <summary>История завершённых шагов 00–03</summary>
