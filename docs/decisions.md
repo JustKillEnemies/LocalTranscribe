@@ -145,3 +145,13 @@
 | ADR-048 | confidence остаётся `None`: faster-whisper segment `avg_logprob` не выдаётся за калиброванную вероятность. | Принято | DTO допускает confidence, но ложная численная уверенность хуже отсутствующего значения. |
 | ADR-049 | Windows CUDA runtime закреплён Python wheels: cuBLAS 12.9.2.10, cuDNN 9.27.0.42; adapter удерживает DLL-directory/WinDLL handles и загружает cuBLAS Lt перед cuBLAS. | Принято | CTranslate2 видел GPU/float16, но первый encode падал без `cublas64_12.dll`. Явная предзагрузка исправлена реальным GPU smoke без изменения системного PATH. |
 | ADR-050 | Precision fallback разрешён только для OOM/неподдерживаемого compute type; missing cuBLAS/cuDNN завершается сразу как CUDA runtime error. | Принято | int8_float16 тоже требует CUDA DLL. Попытка загрузить вторую модель при удерживаемой первой расходовала VRAM и выглядела как зависание; regression test запрещает такой retry. |
+
+## Silero VAD, ШАГ 07 — 2026-10-12
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-051 | Silero v6 ONNX из assets закреплённого faster-whisper 1.2.1, ONNX Runtime 1.31.0 CPUExecutionProvider. | Уже установленная локальная модель; PyTorch, сеть и CUDA для VAD не нужны. |
+| ADR-052 | ONNX session, h/c и 64-sample context принадлежат одному вызову segment; inference по 512 samples при 16 kHz. | Состояние сохраняется через границы входных блоков, сбрасывается между независимыми записями; память ограничена. |
+| ADR-053 | threshold 0.5, hysteresis threshold−0.15, pause 500 ms, padding 200 ms, core limit 30 s. Короткая речь не отбрасывается. | Сохраняет атаки/окончания речи и короткие ответы; EOF сохраняет последний неполный frame. |
+| ADR-054 | SpeechChunk содержит padded PCM и непересекающийся half-open core interval. | Split длинной речи получает контекст с обеих сторон; pipeline шага 08 обязан владеть результатом по core (например по середине word timestamp), чтобы overlap не порождал повторный текст. |
+| ADR-055 | Вход segment — непрерывный поток AudioBlock; reset на рабочей границе не допускается, разрыв/replay вызывает безопасную ошибку. | Сегментатор не знает будущих job/checkpoint; шаг 08 передаёт ему непрерывные блоки или явный контекст окна. |

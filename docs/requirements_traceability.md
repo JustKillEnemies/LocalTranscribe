@@ -123,3 +123,12 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | FR-05 / NFR-02: управляемый int8_float16 fallback | [faster_whisper_engine.py](../src/local_transcriber/infrastructure/faster_whisper_engine.py), [test_transcription.py](../tests/test_transcription.py) | Init и inference CUDA failures дают ровно одну попытку fallback; обе ошибки дают безопасный `CudaUnavailableError`. RTX поддерживает оба compute types. |
 | NFR-04/NFR-05: offline model и локальность | [faster_whisper_engine.py](../src/local_transcriber/infrastructure/faster_whisper_engine.py) | Missing local model не вызывает factory/network; AppSettings задаёт allow_download=false/local_files_only=true. Явный switch протестирован без загрузки весов. |
 | TZ-TESTS: Python 3.14/CUDA runtime | [test_transcription_runtime.py](../tests/test_transcription_runtime.py), [uv.lock](../uv.lock) | faster-whisper 1.2.1, CT2 4.8.2, cuBLAS 12.9.2.10, cuDNN 9.27.0.42; CUDA device=1. 45 s локального русского аудио распознаны offline; исходник/PCM/текст в Git отсутствуют. |
+
+## Артефакты и проверки шага 07
+
+| Требование | Артефакт | Проверка |
+| --- | --- | --- |
+| FR-04: Silero, threshold/pause/padding, bypass | [silero_segmenter.py](../src/local_transcriber/infrastructure/silero_segmenter.py), [settings.py](../src/local_transcriber/infrastructure/settings.py) | Локальная CPU ONNX, 16 kHz, 0.5/500/200; реальная тишина и русское видео; bypass не создаёт scorer. |
+| FR-04/FR-03: короткая/длинная речь, границы, source ms | [speech.py](../src/local_transcriber/domain/speech.py), [segmentation.py](../src/local_transcriber/application/segmentation.py), [test_segmentation.py](../tests/test_segmentation.py) | 96 ms речь сохранена, 65 s split в 3 core, multiple pauses, partial EOF и block fragmentation не теряют samples. |
+| NFR-02/NFR-03: bounded buffer, safe errors | [test_segmentation.py](../tests/test_segmentation.py) | Buffer limit; missing model, NaN probability, gap/replay диагностируются. Source stat неизменен в ручной интеграции. |
+| TZ-TESTS: real Russian fixture | [test_segmentation.py](../tests/test_segmentation.py) | Env-selected приватный 45 s fixture, 10 участков, source-ms ownership без пересечений; данные не входят в Git. Дедупликация текста pipeline — 08. |

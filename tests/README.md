@@ -109,3 +109,14 @@ large-v3-turbo и 45-секундном фрагменте пользовате�
 beam 5, два сегмента с относительными ms. Модель лежит в пользовательском
 LocalAppData, исходник/PCM/распознанный текст не коммитятся. Повтор требует тех же
 локальных данных и поэтому не входит в обычный pytest.
+
+## VAD, шаг 07
+
+`test_segmentation.py`: 10 целевых сценариев (8 unit и 2 integration).
+Синтетические scores проверяют только state machine, синус не считается речью.
+Реальная Silero ONNX проверяется на тишине и приватном русском видео fixture.
+Для видео задайте LOCAL_TRANSCRIBER_VAD_FIXTURE (путь),
+LOCAL_TRANSCRIBER_FFMPEG_PATH; fixture использует stream_index=1 и 600–645 s.
+Без fixture соответствующий тест явно SKIP; ONNX-silence всегда выполняется.
+Для Windows Temp permission error используйте новый уникальный каталог tmp/
+и PYTEST_DEBUG_TEMPROOT. Модель/видео/текст в Git не добавляются.

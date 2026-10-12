@@ -55,6 +55,11 @@ class AppSettings(BaseSettings):
     model_path: Path | None = None
     compute_type: Literal["float16", "int8_float16", "int8", "float32"] = "float16"
     probe_timeout: int = Field(default=5, ge=1, le=30)
+    vad_enabled: bool = True
+    vad_threshold: float = Field(default=0.5, gt=0, lt=1, allow_inf_nan=False)
+    vad_min_silence_ms: int = Field(default=500, ge=32, le=5000)
+    vad_padding_ms: int = Field(default=200, ge=0, le=1000)
+    vad_max_speech_ms: int = Field(default=30_000, ge=1000, le=60_000)
 
     @field_validator("data_dir", "cache_dir", "models_dir", "logs_dir", "temp_dir", "model_path")
     @classmethod

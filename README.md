@@ -321,3 +321,12 @@ uv run alembic -x env_file='C:/Users/USER/AppData/Local/LocalTranscriber/.env' u
 
 Рабочие миграции выполняются только вручную; downgrade рабочей БД запрещён.
 Фактические проверки и ограничения машины перечислены в docs/progress.md.
+
+## Речевая сегментация
+
+Реализован streaming SpeechSegmenter: локальный Silero ONNX на CPU, 16 kHz,
+порог 0.5, пауза 500 ms и padding 200 ms. Речь выдаётся с исходными таймкодами,
+короткие ответы сохраняются, непрерывная речь делится на 30-секундные core
+intervals с контекстом. Настройка LOCAL_TRANSCRIBER_VAD_ENABLED=false включает
+bypass. Модель уже входит в faster-whisper; дополнительных загрузок нет.
+Pipeline, сохранение VAD/STT-результатов и дедупликация текста — следующие этапы.

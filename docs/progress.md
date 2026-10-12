@@ -1,5 +1,69 @@
 # Состояние проекта
 
+Дата: 2026-10-12.
+
+## Текущий шаг
+
+ШАГ 07 — VAD и сегментация. **READY FOR STEP 08**.
+Python 3.14.4, существующая .venv. ШАГ 08 не начат.
+
+## Выполнено
+
+- SpeechSegmenter Protocol, immutable SpeechChunk с source-ms и core ownership.
+- Реальная локальная Silero v6 ONNX CPU, 512 samples/frame, stream h/c/context.
+- threshold 0.5, min silence 500 ms, padding 200 ms; AppSettings и .env.example.
+- Bypass без загрузки модели; короткая речь, тишина, multiple pauses, EOF.
+- Длинная речь split 30 s с overlap; core intervals не пересекаются.
+- Ограниченный буфер ~0.95 MiB PCM при defaults; блоки <=5 s.
+- Документы, traceability и ADR-051–055 обновлены. Новых зависимостей нет.
+
+## Проверки
+
+По просьбе владельца выполнен один небольшой целевой suite, без полного
+PostgreSQL/GPU регрессионного runner прошлых этапов.
+
+| Проверка | Статус | Результат |
+| --- | --- | --- |
+| uv run pytest tests/test_segmentation.py tests/test_settings.py tests/test_transcription.py -q | PASS | 49 passed in 1.30s; 10 новых сценариев, реальные ONNX silence/Russian fixture, без SKIP. |
+| Ручной local Russian smoke | PASS | 45 s, 10 участков; 39.384 s padded PCM; decode+VAD 0.875 s. |
+| Source ms / STT первого участка | PASS | Первый 600000–602152 ms, последний 632632–645000 ms; STT вернул русскую речь. |
+| Сохранность исходника | PASS | size/mtime_ns неизменны; PCM/текст не сохранялись. |
+| uv run ruff check . | PASS | All checks passed. |
+| uv run ruff format --check . | PASS | 54 files already formatted. |
+| git diff --check | PASS | Whitespace ошибок нет. |
+| Полный regression / PostgreSQL / long-file stress | NOT RUN | По просьбе пользователя ограничены проверки текущим этапом; schema/DB не менялись. |
+
+Первый suite столкнулся с PermissionError старого Windows Temp (39 setup errors,
+10 passed); тот же suite успешно повторён в новом tmp/step07-* с
+PYTEST_DEBUG_TEMPROOT. Пользовательские временные каталоги не удалялись.
+
+## Ограничения
+
+- VAD не безошибочен; проверен один русский fixture, тихая речь/шум требуют
+  дальнейшей калибровки. Покадровое сравнение с ручной эталонной разметкой не выполнено.
+- На split PCM имеет intentional overlap, core — без дублей. Дедупликация текста
+  по ownership относится к pipeline шага 08, здесь STT/persistence не связывались.
+- Across working ranges segmenter требует один непрерывный iterable; отдельные
+  независимые вызовы сбрасывают ONNX state. Gap/replay явно отклоняется.
+- Для ручной приёмки: прослушать тихие ответы и места splits, подобрать threshold
+  при необходимости; bypass позволяет повтор без VAD.
+
+## Критерии готовности / следующий этап
+
+- [x] Локальный Silero и обязательные параметры реализованы.
+- [x] Buffer ограничен, source timestamps и межблочное состояние сохранены.
+- [x] Bypass, silence, короткая/длинная речь и ошибки проверены.
+- [x] Real Russian fixture и инспекция границ/STT выполнены без записи данных в Git.
+- [x] Целевые pytest/Ruff/diff проходят.
+- [ ] Владелец разрешил ШАГ 08.
+
+Следующий шаг — 08: конвейер длинных файлов/чекпойнты, только после разрешения.
+
+<details>
+<summary>История шага 06</summary>
+
+# Состояние проекта
+
 Дата: 2026-10-09.
 
 ## Текущий шаг
@@ -795,6 +859,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 
