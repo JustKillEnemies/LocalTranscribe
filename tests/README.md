@@ -142,3 +142,19 @@ uv run python scripts/check_postgresql.py --pytest-target tests/test_pipeline.py
 вывод, чтобы Windows cp1251 не прерывал отчёт с Unicode из pytest.
 Секреты и пользовательский транскрипт не выводятся. Temp cluster принадлежит
 runner, пользовательская БД/служба не меняются.
+
+## Worker, шаг 09
+
+`test_worker.py` — 9 focused spawn-сценариев: FIFO, deferred pause/resume,
+current/queued cancel, worker crash/restart, graceful shutdown, IPC errors и
+реальный FFmpeg child cleanup Windows Job Object. Fake inference явно является
+test double; gates синхронизируются событиями/condition, без flaky sleeps.
+FSM проверяется существующей test_job_transitions (64 параметризованные пары).
+
+`test_postgresql.py::test_worker_pause_cancel_and_crash_preserve_checkpoints`
+проверяет сохранность первого checkpoint и PAUSED/INTERRUPTED/CANCELLED в
+настоящей отдельной DB. Opt-in `test_real_gpu_worker_short_smoke` требует
+LOCAL_TRANSCRIBER_WORKER_SMOKE (локальное видео со stream 1), offline модель,
+FFmpeg и test PostgreSQL; обрабатывает первые 45 s без публикации текста.
+Следует повторять через check_postgresql.py --pytest-target для нужного набора;
+полный предыдущий suite для каждого изменения не требуется.

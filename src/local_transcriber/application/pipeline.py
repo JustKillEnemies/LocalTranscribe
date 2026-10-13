@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from typing import Any, Protocol
 from uuid import UUID
 
-from local_transcriber.application.media_decode import MediaDecoder
+from local_transcriber.application.media_decode import CancellationToken, MediaDecoder
 from local_transcriber.application.segmentation import SpeechSegmenter
 from local_transcriber.application.transcription import TranscriptionEngine
 from local_transcriber.domain.audio import DecodeRange
@@ -19,6 +19,15 @@ from local_transcriber.domain.transcription import TranscriptionSegment
 
 class PipelineError(RuntimeError):
     """Public pipeline failure without source paths, transcript or credentials."""
+
+
+class PipelineCancelled(PipelineError):
+    """Current uncommitted chunk was discarded; earlier checkpoints are durable."""
+
+
+class PipelineControl(CancellationToken, Protocol):
+    def checkpoint(self, job: UUID) -> None: ...
+    def cancelled(self, job: UUID, stream: UUID | None, index: int | None) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -95,13 +104,16 @@ class TranscriptionPipeline:
         config: PipelineConfig | None = None,
         parameters: dict[str, Any] | None = None,
         on_progress: Callable[[UUID, int, int], None] | None = None,
+        control: PipelineControl | None = None,
+        engine_signature: dict[str, Any] | None = None,
     ) -> None:
         self.decoder, self.segmenter, self.engine, self.store = decoder, segmenter, engine, store
         self.fingerprint = fingerprint
         self.config = config or PipelineConfig()
         self.parameters = parameters or {}
-        self._engine_signature = asdict(engine.info)
+        self._engine_signature = engine_signature or asdict(engine.info)
         self.on_progress = on_progress
+        self.control = control
 
     def execute(
         self,
@@ -140,17 +152,29 @@ class TranscriptionPipeline:
         for stream in run.streams:
             for index, start in enumerate(range(0, duration, self.config.chunk_ms)):
                 end = min(start + self.config.chunk_ms, duration)
+                if self.control:
+                    try:
+                        self.control.checkpoint(run.id)
+                    except PipelineCancelled:
+                        self.control.cancelled(run.id, stream.id, index)
+                        raise
                 if self.store.ready(run.id, stream.id, index):
                     continue
                 try:
                     self._check_source(media)
                     results = self._process(run.id, media, stream, start, end, duration)
+                    self._check_cancel()
                     self._check_source(media)
                     self.store.save(run.id, stream.id, index, start, end, results)
                     if self.on_progress:
                         total, completed = self.store.progress(run.id)
                         self.on_progress(run.id, total, completed)
                 except Exception as error:
+                    if isinstance(error, PipelineCancelled) or (
+                        self.control and self.control.is_set()
+                    ):
+                        self.control.cancelled(run.id, stream.id, index)
+                        raise PipelineCancelled(f"Задание {run.id} отменено.") from None
                     message = f"Сбой {type(error).__name__}. Участок не завершён; подтверждённые результаты сохранены."
                     logging.getLogger(__name__).error(
                         "pipeline_failure job_id=%s stream=%s chunk=%s", run.id, stream.index, index
@@ -162,6 +186,13 @@ class TranscriptionPipeline:
                             "checkpoint_status_unavailable job_id=%s", run.id
                         )
                     raise PipelineError(f"Задание {run.id}: {message}") from None
+        # Pause/cancel cannot race the final commit/status transition.
+        if self.control:
+            try:
+                self.control.checkpoint(run.id)
+            except PipelineCancelled:
+                self.control.cancelled(run.id, None, None)
+                raise
         self.store.finish(run.id)
         return run.id
 
@@ -172,6 +203,10 @@ class TranscriptionPipeline:
             raise PipelineError("Исходный файл недоступен; возобновление остановлено.") from None
         if current != media.fingerprint:
             raise PipelineError("Fingerprint файла изменился; возобновление заблокировано.")
+
+    def _check_cancel(self) -> None:
+        if self.control and self.control.is_set():
+            raise PipelineCancelled("Декодирование/распознавание отменено.")
 
     def _process(
         self,
@@ -196,6 +231,7 @@ class TranscriptionPipeline:
                     stream_index=stream.index,
                     decode_range=DecodeRange(offset, min(offset + 900_000, right)),
                     stream_start_ms=stream.start_ms,
+                    **({"cancel": self.control} if self.control else {}),
                 ) as decoded:
                     yield from decoded
 
@@ -205,11 +241,13 @@ class TranscriptionPipeline:
         speech_iterator = self.segmenter.segment(source_blocks)
         try:
             for speech in speech_iterator:
+                self._check_cancel()
                 if speech.core_end_ms <= start or speech.core_start_ms >= end:
                     continue
                 for item in owned_segments(self.engine.transcribe(speech.pcm), speech, start, end):
                     if not any(is_duplicate(item, prior) for prior in (recent + result[-32:])):
                         result.append(item)
+                self._check_cancel()
         finally:
             close = getattr(speech_iterator, "close", None)
             if close is not None:

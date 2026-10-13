@@ -56,6 +56,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     transcribe.add_argument("--chunk-ms", type=int, default=300_000)
     transcribe.add_argument("--overlap-ms", type=int, default=1000)
     transcribe.add_argument(
+        "--interactive", action="store_true", help="stdin-команды pause/resume/cancel"
+    )
+    transcribe.add_argument(
         "--end-ms", type=int, help="конец обрабатываемого диапазона от начала файла"
     )
     arguments = parser.parse_args(argv)
@@ -75,6 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 chunk_ms=arguments.chunk_ms,
                 overlap_ms=arguments.overlap_ms,
                 end_ms=arguments.end_ms,
+                interactive=arguments.interactive,
             )
             return 0
         except PersistenceError as error:

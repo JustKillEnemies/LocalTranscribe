@@ -62,7 +62,7 @@ Application и Domain не импортируют конкретные инфр�
 границы и текст, а `infrastructure.faster_whisper_engine.FasterWhisperEngine`
 адаптирует faster-whisper. Один экземпляр adapter лениво загружает и сохраняет
 одну активную модель; это соответствует будущему владению моделью одним worker,
-но сам worker/IPC остаётся шагом 09. Весь lazy generator faster-whisper
+worker/IPC реализованы в шаге 09. Весь lazy generator faster-whisper
 потребляется внутри adapter до возврата immutable tuple, чтобы inference и ошибки
 не оставались скрытыми после границы вызова.
 
@@ -200,7 +200,7 @@ Transcription Engine worker; Text Processing → чистые правила Dom
   resume проверяет доступность/fingerprint и не дублирует подтверждённые данные.
 - §5.3: команды IPC — START_JOB, PAUSE_JOB, RESUME_JOB, CANCEL_JOB, SHUTDOWN;
   события — JOB_STARTED, PROGRESS_UPDATED, CHUNK_COMPLETED, JOB_PAUSED,
-  JOB_COMPLETED, JOB_FAILED. Короткие ограниченные DTO появятся в 09.
+  JOB_COMPLETED, JOB_FAILED. Короткие ограниченные DTO реализованы в 09.
   Обрыв worker приводит к INTERRUPTED и понятной ошибке; ресурсы освобождаются.
 - §7: Persistence реализует все семь таблиц и поля ТЗ через SQLAlchemy/Alembic,
   UUID/FK/индексы/JSONB/TIMESTAMPTZ и integer ms. Удаление задачи удаляет её
@@ -359,3 +359,45 @@ Resume связывает fingerprint, duration, selected indices, engine config
 chunk/overlap/end, версии runtime и идентичность локальных model files. Ошибки
 журналируются с job_id/stream/chunk без сырого текста и credentials.
 Одновременные CLI-писатели одного job на этом этапе не поддерживаются.
+
+## Worker и IPC — реализация шага 09
+
+`application.worker_protocol` содержит serializable WorkerTask/Command/Event и
+bounded store RPC. Основной процесс создаёт WorkerManager; его supervisor thread
+планирует FIFO и последовательно выполняет Persistence requests. Public submit,
+command и poll не выполняют SQL/inference. Дочерний worker запускается только
+явно через multiprocessing.get_context('spawn'); module imports не запускают
+процессы и не создают CUDA-контекст. Worker main — module-level spawn target.
+
+Worker исполняет Application pipeline через RemoteStore, который передаёт
+метаданные и ограниченную порцию сегментов в родительский процесс, ожидая ACK.
+В родителе PostgreSQLPipelineStore выполняет atomic save и только после commit
+публикует CHUNK_COMPLETED. Session, Engine, CUDA/Qt-объекты и PCM через IPC не
+передаются. Модель lazy-loaded в worker и кешируется для той же model config.
+
+Команды: START_JOB/PAUSE_JOB/RESUME_JOB/CANCEL_JOB/SHUTDOWN; WorkerCommand.START /
+PAUSE / RESUME / CANCEL — короткие aliases. WorkerEvent.kind использует внутренний
+status, WorkerEvent.name — канонические JOB_STARTED/PROGRESS_UPDATED/
+CHUNK_COMPLETED/JOB_PAUSED/JOB_COMPLETED/JOB_FAILED. Дополнительно READY,
+QUEUED, JOB_CREATED, PAUSE_DEFERRED, CANCELLED, INTERRUPTED, IPC_ERROR.
+Queue capacities по умолчанию 16, максимум 64; UI event history ограничена 128.
+Result RPC ограничен 50000 сегментов / 1000000 text characters; текст — часть
+результата, но PCM всегда остаётся в worker. RPC ждёт ACK не более 30 s.
+
+Control listener работает независимо от inference: pause лишь запрашивает
+отложенную остановку, а PipelineControl.checkpoint после commit переводит job
+в PAUSED. Resume продолжает PROCESSING без reload модели. Cancel задаёт token,
+FFmpeg watchdog завершает процесс независимо от следующего stdout read; native
+CUDA-вызов не прерывается внутри C++, проверка token выполняется перед/после него.
+На accepted cancel parent отвергает новый save/finish. Уже начатый atomic commit
+может завершиться и остаётся сохранённым checkpoint. Status updates и saves
+выполняются одним supervisor, исключая конкурирующий статусный writer.
+
+При death/IPC failure supervisor прекращает принимать stale RPC, сохраняет
+INTERRUPTED, закрывает Windows Job Object (KILL_ON_JOB_CLOSE) и его собственных
+FFmpeg children. restart создаёт новые каналы/process; неподтверждённый chunk
+повторяется через существующий fingerprint/config gate. Graceful shutdown
+прерывает active job, помечает queued resume jobs и ждёт процесс с timeout;
+сломанный command channel ведёт к forced cleanup. Поддерживается один manager
+для одной очереди; несколько независимых GPU managers не координируются.
+События failure/recovery журналируются в основном процессе с job_id.

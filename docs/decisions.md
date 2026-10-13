@@ -165,3 +165,14 @@
 | ADR-058 | Explicit --resume UUID; fingerprint и immutable parameter manifest обязаны совпасть, COMPLETED — no-op. | Новая модель/VAD/границы не смешиваются с сохранённым RAW. Без --resume создаётся отдельная задача. |
 | ADR-059 | Нулевой word alignment Whisper нормализуется в 1 ms внутри аудио; обратные таймкоды отклоняются. | На реальном 60-min прогоне встречались нулевые durations; текст нельзя терять из-за погрешности alignment. Регрессионный тест сохраняет слово при EOF. |
 | ADR-060 | CLI синхронный; worker/FIFO/pause/cancel/recovery остаются шагом 09. | Границы текущего шага: sequential pipeline и durable resume, без преждевременного IPC/GUI. |
+
+## Worker, ШАГ 09 — 2026-10-13
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-061 | Один spawn-worker для decode/VAD/STT, Persistence RPC — в основном процессе через supervisor thread. | Сохраняет утверждённые границы и отзывчивость UI; SQLAlchemy/CUDA objects и PCM не пересылаются. |
+| ADR-062 | Bounded FIFO/IPC, синхронный result ACK после atomic commit, canonical команды/события ТЗ. | Backpressure ограничивает память; worker не считает результат подтверждённым до commit. |
+| ADR-063 | PAUSE_DEFERRED во время chunk, PAUSED только на checkpoint; CANCEL немедленно сигнализирует FFmpeg и проверяется до следующего save. | Частично распознанные результаты текущего chunk не фиксируются; завершённые checkpoints сохраняются. |
+| ADR-064 | Windows Job Object с KILL_ON_JOB_CLOSE, один на worker lifecycle. | Убийство worker не выполняет Python finally; Job Object прибирает именно его FFmpeg children без поиска/убийства чужих процессов. |
+| ADR-065 | Graceful shutdown и worker death → INTERRUPTED; explicit restart/resume повторяет только неготовое. | После аварии нет фиктивного PROCESSING; cancel остаётся терминальным CANCELLED. |
+| ADR-066 | Native STT-вызов не прерывается внутри CUDA; timeout shutdown может принудительно завершить worker. | Стабильное владение CUDA; cancel прекращает decode и запрещает запись отменённого результата, сохраняя atomic commit, уже начатый раньше. |

@@ -4,6 +4,94 @@
 
 ## Текущий шаг
 
+ШАГ 09 — worker, IPC, очередь и управление заданиями. **READY FOR STEP 10**.
+Python 3.14.4, существующая .venv. ШАГ 10 не начат.
+
+## Реализовано
+
+- Один отдельный GPU process через Windows spawn и model cache на worker.
+- WorkerManager: асинхронные submit/control/poll и bounded FIFO.
+- Canonical START_JOB/PAUSE_JOB/RESUME_JOB/CANCEL_JOB/SHUTDOWN и события ТЗ.
+- Persistence в parent supervisor thread, bounded RPC/ACK после atomic save;
+  Session/CUDA/PCM не передаются через процессы.
+- Deferred pause подтверждается после чекпойнта, resume без reload модели.
+- Cancel останавливает FFmpeg, отбрасывает current chunk, сохраняет completed.
+- Graceful shutdown/авария → INTERRUPTED, explicit restart/resume; queued cancel.
+- Windows Job Object закрывает собственные FFmpeg children после kill worker.
+- CLI --interactive с stdin pause/resume/cancel; Ctrl+C отправляет cancel.
+- Parent error/recovery log по job_id; README/architecture/traceability/ADR обновлены.
+
+## Проверки
+
+Выполнен целевой набор, без полного regression. Изолированный PostgreSQL runner
+не менял рабочую БД/службу и остановил собственный кластер после тестов.
+
+| Проверка | Статус | Результат |
+| --- | --- | --- |
+| uv run pytest -q (выбранные worker/pipeline/CLI/FFmpeg/PG/FSM targets) | PASS | 119 passed in 19.99s, без SKIP. |
+| FSM JobStatus | PASS | 64 пары текущих/целевых состояний. |
+| Windows spawn fake inference | PASS | FIFO, pause/resume, active/queued cancel, shutdown, crash/restart, IPC errors. |
+| Real PostgreSQL worker lifecycle | PASS | Первый checkpoint сохраняется; PAUSED → INTERRUPTED после kill → restart → CANCELLED, без потери RAW. |
+| Real FFmpeg child cleanup | PASS | После kill worker owned child handle получает process-exit signal за <=5 s. |
+| Real GPU worker 45 s smoke | PASS | 9.095 s включая startup/decode/VAD/STT/persist, 95 word-level segments; offline модель/RTX 4060 Ti. |
+| Последний focused worker/pipeline после canonical-name mapping | PASS | 17 passed in 5.32s, включая startup failure и queued-ticket recovery. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS | 0003_audio_timeline (head), schema diff отсутствует; новых миграций нет. |
+| Ruff check / format --check | PASS | All checks passed; 63 files already formatted. |
+| git diff --check | PASS | Whitespace ошибок нет. |
+| Полный regression/GUI/3-hour stress | NOT RUN | По запросу ограничены проверки текущим этапом; GUI/stress — позднее. |
+
+Новых зависимостей/моделей не скачивалось. 45 s fixture взят из разрешённого
+Videos; исходный файл и рабочая PostgreSQL не менялись, PCM/текст в Git отсутствуют.
+GPU model загрузилась только в worker, сохранение выполнялось parent RPC.
+
+## Исправленные ошибки
+
+1. Закрытый command channel раньше прерывал shutdown до cleanup и оставлял worker.
+   Теперь fallback завершает собственный process/Job Object; regression passed.
+2. Parent event append/poll сериализованы коротким lock, чтобы poll не терял
+   событие между чтением и очисткой. SQL не удерживает этот UI lock.
+3. Cancel queued resume теперь сохраняет CANCELLED вне UI thread без запуска
+   inference; shutdown маркирует queued resume как INTERRUPTED.
+4. START следующего ticket не теряет control state при finally предыдущего job.
+5. При смерти до READY pending tickets уведомляются INTERRUPTED, чтобы CLI не
+   ждал бесконечно; до restart новая подача запрещена.
+
+## Ограничения и ручной чек-лист
+
+- Один manager на приложение; несколько независимых CLI одновременно не имеют
+  общего глобального scheduler. GUI ещё не реализован.
+- Native CUDA вызов заканчивается до подтверждения cancel; decode уже прекращён,
+  новый result не сохраняется. При shutdown timeout worker завершается принудительно.
+- При недоступной БД supervisor сообщает failure recovery; persistent status можно
+  восстановить лишь после возвращения доступа. Завершённые atomic checkpoints остаются.
+- restart/shutdown могут ждать cleanup и вызываются будущим UI вне event loop;
+  submit/command/poll не ждут inference/SQL.
+- Для ручной проверки: transcribe --interactive; pause → PAUSE_DEFERRED → JOB_PAUSED;
+  resume; cancel. Для аварии используйте только owned worker PID, затем --resume UUID.
+- Worker UI event history ограничена 128; потребитель должен регулярно poll.
+- Long/stress и полная оценка качества не повторялись; шаг 08 уже проверил 60 min.
+- Блокеров для шага 10 нет.
+
+## Критерии готовности / следующий этап
+
+- [x] Отдельный spawn GPU worker, FIFO, bounded IPC, parent persistence реализованы.
+- [x] Pause/resume/cancel/shutdown и checkpoint/status ordering проверены.
+- [x] Crash/IPC recovery → INTERRUPTED, restart и process-tree cleanup проверены.
+- [x] Реальная PostgreSQL и короткий GPU worker smoke выполнены.
+- [x] Целевые pytest/Ruff/Alembic/diff проходят.
+- [ ] Владелец разрешил ШАГ 10.
+
+Следующий этап — 10: RAW/READABLE и текстовые версии; только после разрешения.
+
+<details>
+<summary>История шага 08</summary>
+
+# Состояние проекта
+
+Дата: 2026-10-13.
+
+## Текущий шаг
+
 ШАГ 08 — конвейер длинных файлов и чекпойнты. **READY FOR STEP 09**.
 Python 3.14.4, существующая .venv. ШАГ 09 не начат.
 
@@ -945,6 +1033,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

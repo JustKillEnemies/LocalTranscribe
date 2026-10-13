@@ -167,3 +167,37 @@ class PostgreSQLPipelineStore:
             )
             if chunk is not None and chunk.status != "COMPLETED":
                 chunk.status, chunk.error_message = "FAILED", message
+
+    def pause(self, job: UUID) -> None:
+        self.jobs.transition(job, JobStatus.PAUSED)
+
+    def resume(self, job: UUID) -> None:
+        self.jobs.transition(job, JobStatus.PROCESSING)
+
+    def cancel(self, job: UUID, stream: UUID | None, index: int | None) -> None:
+        self._stop(job, "CANCELLED", "Отменено пользователем.", stream, index)
+
+    def interrupt(self, job: UUID) -> None:
+        self._stop(job, "INTERRUPTED", "Worker прерван; доступно возобновление.", None, None)
+
+    def _stop(
+        self, job: UUID, status: str, message: str, stream: UUID | None, index: int | None
+    ) -> None:
+        with transaction(self.factory) as session:
+            row = session.scalar(
+                select(TranscriptionJob).where(TranscriptionJob.id == job).with_for_update()
+            )
+            if row is None or row.status in {"COMPLETED", "CANCELLED"}:
+                return
+            row.status, row.error_message = status, message
+            row.finished_at = datetime.now(UTC) if status == "CANCELLED" else None
+            statement = select(ProcessingChunk).where(
+                ProcessingChunk.job_id == job,
+                ProcessingChunk.status != "COMPLETED",
+            )
+            if stream is not None:
+                statement = statement.where(
+                    ProcessingChunk.stream_id == stream, ProcessingChunk.chunk_index == index
+                )
+            for chunk in session.scalars(statement):
+                chunk.status, chunk.error_message = "FAILED", message

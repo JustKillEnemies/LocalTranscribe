@@ -10,7 +10,7 @@
 ## Текущее состояние
 
 Пакет поддерживает запуск, справку, версию, doctor, `inspect` и `import` медиа.
-Настройки читаются из локального окружения или пользовательского .env. GUI, GPU worker и экспорт пока не реализованы. PostgreSQL-схема, Alembic и
+Настройки читаются из локального окружения или пользовательского .env. GUI и экспорт пока не реализованы; GPU worker выделен в отдельный spawn-процесс. PostgreSQL-схема, Alembic и
 транзакционные репозитории реализованы отдельно; подключения берут AppSettings.
 
 Инспекция поддерживает MKV/MP4/MOV/WAV/MP3/M4A/FLAC/WebM, запускает локальный
@@ -352,4 +352,28 @@ CLI последовательно обрабатывает logical chunks по 
 STT. Запуск без --resume создаёт отдельное задание. Сохранённые RAW не перезаписываются.
 CLI выводит JSON progress/job_id без транскрипта; ошибки с job_id записываются в
 пользовательский logs/pipeline-errors.log. Исходник и PCM в PostgreSQL не хранятся.
-Процесс пока синхронный; worker, pause/cancel/FIFO и IPC относятся к шагу 09.
+Inference выполняется в отдельном worker; CLI получает события и сохраняет результаты в основном процессе.
+
+## Управление worker
+
+Один Windows `spawn`-worker обслуживает FIFO-очередь. API WorkerManager.submit /
+command / poll позволяет будущему GUI получать события без ожидания inference
+или SQL на UI-потоке. Модель повторно используется для одинаковой конфигурации;
+смена модели сначала освобождает прежнюю. SQLAlchemy Session/Engine не передаются
+в worker, аудио остаётся внутри worker.
+
+```powershell
+uv run local-transcriber transcribe 'C:/Users/USER/Videos/recording.mkv' --stream-index 1 --interactive
+```
+
+В интерактивном режиме вводите `pause`, `resume`, `cancel`. Pause сначала выдаёт
+PAUSE_DEFERRED, затем JOB_PAUSED после сохранения текущего logical chunk.
+Cancel прекращает FFmpeg, сохраняет прежние checkpoints и отменяет незавершённый
+chunk. Текущий native STT-вызов может закончиться до подтверждения cancel; его
+результат после принятия отмены не записывается. Ctrl+C также запрашивает cancel.
+
+Закрытие manager выполняет SHUTDOWN и сохраняет INTERRUPTED для незавершённого
+job. При аварии supervisor ставит INTERRUPTED и позволяет restart + --resume.
+Windows Job Object гарантирует cleanup собственных FFmpeg children при убийстве
+worker. Рабочая БД/службы и чужие процессы не затрагиваются. restart/shutdown —
+операции завершения с тайм-аутом; будущий GUI вызывает их вне Qt event loop.

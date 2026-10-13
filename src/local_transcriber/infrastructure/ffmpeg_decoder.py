@@ -144,6 +144,17 @@ class FFmpegMediaDecoder:
                 daemon=True,
             )
             reader.start()
+            watcher = None
+            if cancel is not None:
+
+                def watch_cancel() -> None:
+                    while not stop.wait(0.05):
+                        if cancel.is_set():
+                            self._stop_process(process)
+                            return
+
+                watcher = threading.Thread(target=watch_cancel, name="ffmpeg-cancel", daemon=True)
+                watcher.start()
             blocks = self._blocks(
                 process,
                 output,
@@ -159,6 +170,8 @@ class FFmpegMediaDecoder:
                 self._stop_process(process)
                 process.stdout.close()
                 reader.join(timeout=self.shutdown_timeout)
+                if watcher is not None:
+                    watcher.join(timeout=self.shutdown_timeout)
 
     def _blocks(
         self,
@@ -231,7 +244,12 @@ class FFmpegMediaDecoder:
     def _stop_process(self, process: subprocess.Popen[bytes]) -> None:
         if process.poll() is not None:
             return
-        process.terminate()
+        try:
+            process.terminate()
+        except OSError:
+            if process.poll() is not None:
+                return
+            raise
         try:
             process.wait(timeout=self.shutdown_timeout)
         except subprocess.TimeoutExpired:

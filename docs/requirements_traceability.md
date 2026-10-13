@@ -142,3 +142,13 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | FR-07: atomic checkpoint/resume, fingerprint/model validation | [pipeline_store.py](../src/local_transcriber/infrastructure/database/pipeline_store.py), [test_postgresql.py](../tests/test_postgresql.py) | Crash после двух checkpoints; remaining-only resume; repeat no-op; изменённый manifest блокирует resume; реальная PG и прежний atomic repository. |
 | NFR-03: safe failures и resource cleanup | [test_pipeline.py](../tests/test_pipeline.py), [test_transcription.py](../tests/test_transcription.py) | RuntimeError/BaseException, source/params mismatch, decoder finally-close; zero-duration word regression. |
 | TZ-CLI: transcribe и журнал по job_id | [__main__.py](../src/local_transcriber/__main__.py), [transcribe_cli.py](../src/local_transcriber/infrastructure/transcribe_cli.py) | Existing launchers/CLI сохраняются; --stream-index/--resume, JSON progress, пользовательский error log. |
+
+## Артефакты и проверки шага 09
+
+| Требование | Артефакт | Проверка |
+| --- | --- | --- |
+| TZ-ARCH §5.2–5.3, NFR-02: один GPU worker, spawn, IPC, FIFO | [worker_protocol.py](../src/local_transcriber/application/worker_protocol.py), [worker_manager.py](../src/local_transcriber/infrastructure/worker_manager.py), [worker_process.py](../src/local_transcriber/infrastructure/worker_process.py) | Windows spawn с парой заданий FIFO; bounded queues; ML/PCM в worker, DB в parent. |
+| FR-07: pause/resume/cancel, atomic checkpoints | [pipeline.py](../src/local_transcriber/application/pipeline.py), [pipeline_store.py](../src/local_transcriber/infrastructure/database/pipeline_store.py), [test_worker.py](../tests/test_worker.py) | Deferred pause, safe checkpoint, resume; cancel current/queued; PG сохраняет первый checkpoint после crash/cancel. |
+| TZ-ERRORS: INTERRUPTED после аварии / error IPC | [worker_manager.py](../src/local_transcriber/infrastructure/worker_manager.py), [test_postgresql.py](../tests/test_postgresql.py) | Kill paused worker, durable INTERRUPTED, restart/resume; malformed message/closed channel и graceful shutdown. |
+| FR-03/NFR-03: нет оставшихся FFmpeg | [process_job.py](../src/local_transcriber/infrastructure/process_job.py), [ffmpeg_decoder.py](../src/local_transcriber/infrastructure/ffmpeg_decoder.py) | Реальный FFmpeg child handle завершён после kill worker; cancel watchdog и прежний real cancellation test. |
+| FR-05 / TZ-TESTS: реальный GPU worker | [test_postgresql.py](../tests/test_postgresql.py) | 45 s offline CUDA/STT в spawn-worker, 95 слов в реальной test PostgreSQL; основной процесс принимает RPC. |

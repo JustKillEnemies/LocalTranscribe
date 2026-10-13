@@ -678,3 +678,88 @@ def test_pipeline_real_hour(postgres, capsys) -> None:
             f"HOUR_SMOKE PASS seconds={time.perf_counter() - started:.3f} segments={count} compute=float16",
             flush=True,
         )
+
+
+def test_worker_pause_cancel_and_crash_preserve_checkpoints(postgres) -> None:
+    from test_worker import fake_pipeline_executor, task, until
+
+    from local_transcriber.application.worker_protocol import WorkerCommand
+    from local_transcriber.infrastructure.database.pipeline_store import PostgreSQLPipelineStore
+    from local_transcriber.infrastructure.worker_manager import WorkerManager
+
+    _, factory, _ = postgres
+    with WorkerManager(
+        PostgreSQLPipelineStore(factory), executor=fake_pipeline_executor
+    ) as manager:
+        item = task("gate")
+        manager.submit(item)
+        active, _ = until(manager, "CHUNK_ACTIVE", item.ticket)
+        job = active.job_id
+        manager.command(WorkerCommand.PAUSE, item.ticket)
+        until(manager, "PAUSED", item.ticket)
+        with transaction(factory) as session:
+            row = session.get(TranscriptionJob, job)
+            assert row.status == "PAUSED"
+            assert row.completed_chunks == 1
+        manager._process.kill()  # owned worker only; supervisor must recover durable state
+        until(manager, "INTERRUPTED", item.ticket)
+        with transaction(factory) as session:
+            assert session.get(TranscriptionJob, job).status == "INTERRUPTED"
+            assert session.scalar(select(func.count()).select_from(TranscriptSegment)) == 1
+        manager.restart()
+        resumed = task("gate", resume=job)
+        manager.submit(resumed)
+        until(manager, "CHUNK_ACTIVE", resumed.ticket)
+        manager.command(WorkerCommand.CANCEL, resumed.ticket)
+        until(manager, "CANCELLED", resumed.ticket)
+        with transaction(factory) as session:
+            row = session.get(TranscriptionJob, job)
+            assert row.status == "CANCELLED"
+            assert row.completed_chunks == 1
+            assert session.scalar(select(func.count()).select_from(TranscriptSegment)) == 1
+
+
+def test_real_gpu_worker_short_smoke(postgres, capsys) -> None:
+    import time
+    from dataclasses import asdict, replace
+
+    from test_worker import until
+
+    from local_transcriber.application.pipeline import PipelineConfig
+    from local_transcriber.application.worker_protocol import WorkerTask
+    from local_transcriber.infrastructure.database.pipeline_store import PostgreSQLPipelineStore
+    from local_transcriber.infrastructure.faster_whisper_engine import FasterWhisperConfig
+    from local_transcriber.infrastructure.silero_segmenter import SegmentationConfig
+    from local_transcriber.infrastructure.worker_manager import WorkerManager
+
+    source = os.environ.get("LOCAL_TRANSCRIBER_WORKER_SMOKE")
+    if not source:
+        pytest.skip("set LOCAL_TRANSCRIBER_WORKER_SMOKE for offline real GPU worker validation")
+    settings = load_settings()
+    _, factory, _ = postgres
+    model = replace(FasterWhisperConfig.from_settings(settings), word_timestamps=True)
+    started = time.perf_counter()
+    with WorkerManager(PostgreSQLPipelineStore(factory)) as manager:
+        item = WorkerTask(
+            uuid4(),
+            Path(source),
+            (1,),
+            PipelineConfig(end_ms=45_000),
+            {},
+            settings.ffmpeg_path,
+            settings.ffprobe_path,
+            asdict(model),
+            asdict(SegmentationConfig()),
+        )
+        manager.submit(item)
+        completed, events = until(manager, "COMPLETED", item.ticket, timeout=60)
+        assert any(x.kind == "MODEL_SELECTED" for x in events)
+        with transaction(factory) as session:
+            assert session.get(TranscriptionJob, completed.job_id).status == "COMPLETED"
+            count = session.scalar(select(func.count()).select_from(TranscriptSegment))
+            assert count > 0
+        with capsys.disabled():
+            print(
+                f"GPU_WORKER PASS seconds={time.perf_counter() - started:.3f} words={count} pid={manager.pid}",
+                flush=True,
+            )
