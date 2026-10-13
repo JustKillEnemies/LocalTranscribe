@@ -85,7 +85,7 @@ def test_help_and_default_command(kind: str, arguments: list[str]) -> None:
     assert result.returncode == 0, result.stderr
     assert "--help" in result.stdout
     assert "--version" in result.stdout
-    assert "следующих этапах" in " ".join(result.stdout.split())
+    assert "RAW/READABLE/MANUAL" in result.stdout
     assert result.stderr == ""
     assert "\x1b[" not in result.stdout
 

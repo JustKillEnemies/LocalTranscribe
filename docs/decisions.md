@@ -207,3 +207,13 @@
 | ADR-080 | Optional RecordingDecoder tee bounded PCM в WAV по decode-range в worker; место рассчитывать по длине/потокам. | Реальное сохранение промежуточного аудио без загрузки записи в RAM и без фиктивного checkbox. |
 | ADR-081 | Quit QApplication по closed backend; explicit DeferredDelete widgets перед QApplication. | Найден native abort после high-DPI закрытия при автоматическом quit-on-last-window; fix подтверждён Windows process regression. |
 | ADR-082 | PySide6 6.12.0 и pytest-qt 4.5.0 закреплены, только существующая .venv CPython 3.14. | Win x64 wheels доступны; фактические Qt/offscreen/native проверки подтверждают этот набор, Python остаётся окончательно выбранным. |
+
+## Редактор и воспроизведение, ШАГ 13 — 2026-10-13
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-083 | Окно результатов повторно использует PostgreSQLExportSource/TranscriptService/ExportService, actor requests коррелируются UUID. | Нет второй SQL-конфигурации, STT или перезаписи RAW; ошибки одного окна не подтверждают сохранение другого. |
+| ADR-084 | MANUAL draft переживает переключение режима; закрытие/Escape/выход защищены dirty/saving guard, .env нельзя менять при открытых результатах. | Правки не теряются молча, сохраняются в исходном DB context; append-only история остаётся неизменной. |
+| ADR-085 | Virtual QAbstractTableModel + proxy filters и debounce literal search/highlighter с UTF-16 offsets. | 1000 сегментов без отдельных widgets, Unicode/emoji подсвечиваются корректно; фильтры не переписывают полный текст. |
+| ADR-086 | Qt Multimedia читает original local path; active source segments используют positionChanged integer-ms, MANUAL alignment не угадывается. | Единая шкала и отсутствие копий/PCM в GUI; отсутствие файла/кодека не скрывает сохранённый текст. |
+| ADR-087 | Выбор звука Qt отдельный от фильтра stream_index; GUI экспортирует конкретную сохранённую версию. | Нумерация Qt не равна ffprobe; черновик не выдаётся за сохранённую версию, MANUAL SRT отвергается прежним сервисом. |

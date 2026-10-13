@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
         self._selected = None
         self._can_close = False
         self._closing = False
+        self._result_windows = {}
         self.setWindowTitle("LocalTranscribe — локальная транскрибация")
         self.resize(1180, 760)
         self.setMinimumSize(880, 600)
@@ -83,8 +84,10 @@ class MainWindow(QMainWindow):
         self.add_button = QPushButton("Добавить записи…")
         self.refresh_button = QPushButton("Обновить подключение")
         self.settings_button = QPushButton("Выбрать .env…")
+        self.result_button = QPushButton("Открыть транскрипт")
         toolbar.addWidget(self.add_button)
         toolbar.addWidget(self.refresh_button)
+        toolbar.addWidget(self.result_button)
         toolbar.addStretch()
         toolbar.addWidget(self.settings_button)
         layout.addLayout(toolbar)
@@ -185,6 +188,7 @@ class MainWindow(QMainWindow):
         self.add_button.clicked.connect(self._choose_files)
         self.refresh_button.clicked.connect(lambda: self.bridge.submit("refresh"))
         self.settings_button.clicked.connect(self._choose_env)
+        self.result_button.clicked.connect(self._open_result)
         self.table.itemSelectionChanged.connect(self._selection)
         self.start_button.clicked.connect(self._start)
         for button, command in (
@@ -403,7 +407,36 @@ class MainWindow(QMainWindow):
         self.add_button.setEnabled(self.connected and not self._closing)
         self.job_settings.setEnabled(bool(record) and actions[0] and not self._closing)
         self.streams.setEnabled(bool(record) and actions[0] and not self._closing)
-        self.settings_button.setEnabled(not self.queued and not self._closing)
+        self.settings_button.setEnabled(
+            not self.queued and not self._result_windows and not self._closing
+        )
+        self.result_button.setEnabled(
+            bool(record and record.job_id and record.status == "COMPLETED")
+            and self.connected
+            and not self._closing
+        )
+
+    def _open_result(self) -> None:
+        from local_transcriber.ui.results import ResultsWindow
+
+        record = self.records.get(self._selected)
+        if record is None or record.job_id is None:
+            return
+        window = self._result_windows.get(record.job_id)
+        if window is None:
+            window = ResultsWindow(self.bridge, record.job_id, self)
+            self._result_windows[record.job_id] = window
+            window.finished.connect(lambda result, key=record.job_id: self._forget_result(key))
+        window.show()
+        self._buttons()
+        window.raise_()
+        window.activateWindow()
+
+    def _forget_result(self, key) -> None:
+        window = self._result_windows.pop(key, None)
+        if window:
+            window.deleteLater()
+        self._buttons()
 
     def _start(self) -> None:
         record = self.records.get(self._selected)
@@ -444,6 +477,9 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+            for window in tuple(self._result_windows.values()):
+                if not window.close():
+                    return
             self._closing = True
             self.activity.setText("Остановка worker и сохранение состояния…")
             self._buttons()

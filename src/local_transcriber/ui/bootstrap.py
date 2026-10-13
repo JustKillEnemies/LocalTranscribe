@@ -23,6 +23,7 @@ def run_gui(env_file: Path | None = None) -> int:
         (QPalette.ColorRole.Base, "#141820"),
         (QPalette.ColorRole.AlternateBase, "#242a35"),
         (QPalette.ColorRole.Text, "#e6ebf2"),
+        (QPalette.ColorRole.PlaceholderText, "#8793a5"),
         (QPalette.ColorRole.Button, "#303847"),
         (QPalette.ColorRole.ButtonText, "#e6ebf2"),
         (QPalette.ColorRole.Highlight, "#3677bd"),

@@ -1222,3 +1222,69 @@ def test_desktop_real_import_history_roles_and_worker(
         assert restarted.manager is None  # History never starts a GPU worker.
     finally:
         restarted.close()
+
+
+def test_results_editor_real_postgresql_save_reload_export(postgres, qtbot, monkeypatch, tmp_path):
+    from PySide6.QtCore import Qt
+
+    from local_transcriber.application.export import ExportFormat, ExportOptions
+    from local_transcriber.application.transcript import TranscriptService
+    from local_transcriber.domain.text import VersionType
+    from local_transcriber.infrastructure import desktop_backend
+    from local_transcriber.infrastructure.database.text_store import (
+        PostgreSQLTranscriptStore,
+        TermRepository,
+    )
+    from local_transcriber.ui.bridge import DesktopBridge
+    from local_transcriber.ui.results import ResultsWindow
+
+    engine, factory, _ = postgres
+    jobs, streams = _completed_text_job(factory)
+    job = jobs[0]
+    store = PostgreSQLTranscriptStore(factory)
+    text = TranscriptService(store, TermRepository(factory))
+    raw = text.raw(job)
+    text.readable(job)
+    monkeypatch.setattr(desktop_backend, "make_engine", lambda settings: engine)
+    service = desktop_backend.DesktopService(settings=load_settings())
+    bridge = DesktopBridge(lambda path: service)
+    window = ResultsWindow(bridge, job)
+    qtbot.addWidget(window)
+    window.show()
+    bridge.start()
+    try:
+        qtbot.waitUntil(lambda: window.document is not None, timeout=10000)
+        assert service.manager is None
+        window.mode.setCurrentIndex(2)
+        window.editor.setPlainText("Исправлено вручную: PostgreSQL")
+        qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(lambda: not window._saving, timeout=10000)
+        manual = window.versions[VersionType.MANUAL]
+        assert manual.kind is VersionType.MANUAL
+        assert text.raw(job).id == raw.id
+        assert text.raw(job).content == raw.content
+        target = tmp_path / "manual.txt"
+        window.export_to(target, ExportOptions(ExportFormat.TXT))
+        qtbot.waitUntil(target.exists, timeout=10000)
+        assert target.read_text(encoding="utf-8") == manual.content + "\n"
+        window.export_to(tmp_path / "invalid.srt", ExportOptions(ExportFormat.SRT))
+        qtbot.waitUntil(lambda: "привязки к времени" in window.info.text(), timeout=10000)
+        assert not (tmp_path / "invalid.srt").exists()
+        assert window.editor.toPlainText() == manual.content
+        window.mode.setCurrentIndex(0)
+        assert window.editor.toPlainText() == raw.content
+    finally:
+        window._dirty = False
+        window.close()
+        bridge.request_close()
+        assert bridge.wait_closed()
+    # Fresh adapter and actual database snapshot, no worker/model or source required.
+    restarted = desktop_backend.DesktopService(settings=load_settings())
+    from local_transcriber.application.results import ResultRequest
+
+    try:
+        snapshot = restarted.execute("result_load", ResultRequest(uuid4(), job))[0].value
+        assert snapshot.selected.id == manual.id and snapshot.raw.id == raw.id
+        assert restarted.manager is None
+    finally:
+        restarted.close()

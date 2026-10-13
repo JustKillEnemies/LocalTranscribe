@@ -533,3 +533,38 @@ background backend.shutdown останавливает manager и DB, closed с�
 при high-DPI закрытии; регрессия проверяется новым процессом, а не только qtbot.
 Ошибки доступны в bounded diagnostic view и строке записи; PipelineError передаётся
 из worker как безопасное подробное сообщение, неизвестные исключения — только тип.
+
+## Окно результатов (границы шага 13)
+
+`application.results.ResultRequest` переносит job/version UUID и данные команды.
+DesktopBridge выполняет result_load/manual/export в прежнем background actor,
+коррелирует ответы/ошибки по request UUID. Qt widgets/SQLAlchemy Session не
+передаются; очереди остаются bounded. При ошибке загрузки/сохранения/экспорта
+пользовательский текст не стирается. Настройки подключения нельзя менять при
+открытых результатах; dirty/saving close guard действует также на главное окно.
+
+DesktopService связывает PostgreSQLExportSource (repeatable-read snapshot,
+проверка RAW digest, последние версии), TranscriptService.manual и ExportService
+с AtomicExportWriter. Не создаёт движок STT/WorkerManager, не меняет исходник.
+Сохранение MANUAL append-only, экспорт выбранной сохранённой версии защищает
+источник/коллизии. Для completed legacy job без RAW остаётся существующая команда
+text raw/readable; обычное завершение GUI создаёт эти версии в шаге 12.
+
+`ui.results.ResultsWindow` использует QAbstractTableModel/QSortFilterProxyModel
+для исходных сегментов, не 1000 отдельных widgets/items. Поиск debounce 150 ms,
+case-insensitive literal, QSyntaxHighlighter подсвечивает полный текст с учётом
+UTF-16 offsets/emoji. Фильтры дорожки/роли применяются к исходной таблице;
+полная версия не подменяется отфильтрованным RAW. MANUAL draft сохраняется при
+переключении режимов, append возвращает UUID новой сохранённой версии.
+
+QMediaPlayer + QAudioOutput + QVideoWidget используют fromLocalFile(original path).
+positionChanged и сегменты делят integer-ms шкалу; клик делает exact ms seek,
+отложенный seek применяется после загрузки. Slider хранит долю времени, поэтому
+24-hour/qint64 времена не ограничены int32 range самого slider. Active overlap
+сегменты подсвечиваются, optional follow прокручивает доступную строку фильтра.
+Плеер работает только со своим decoder buffer, PCM приложения не передаётся.
+Номера Qt audio tracks выбираются явно и не угадываются из ffprobe indices.
+Неподдерживаемый codec/resource error выключает player controls, сохраняя текст.
+MANUAL не имеет alignment; синхронизация относится к исходной таблице, правкам
+не присваиваются вымышленные таймкоды. Текущие API: [QMediaPlayer](https://doc.qt.io/qtforpython-6/PySide6/QtMultimedia/QMediaPlayer.html),
+[QAudioOutput](https://doc.qt.io/qtforpython-6/PySide6/QtMultimedia/QAudioOutput.html).

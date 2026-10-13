@@ -204,3 +204,14 @@ synthetic executor и test-only model files, не доказательство C
 Проверяются import/history/role/RAW/READABLE/WAV/source preservation; worker при
 открытии истории не стартует. `test_worker.py` остаётся проверкой предыдущего
 IPC lifecycle; реальный FFmpeg для child cleanup должен быть доступен в PATH.
+
+## Редактор, шаг 13
+
+`test_results.py`: 6 focused Qt scenarios — 1000 rows/search/filters/seek/heartbeat,
+MANUAL/save/RAW/export, failed-save/draft/Escape, missing/corrupt source/empty text,
+real Qt WAV playback/seek, result button + main-window dirty shutdown guard.
+ResultBackend — test double, не доказательство PostgreSQL/STT. Нужны PySide6,
+pytest-qt; QT_QPA_PLATFORM=offscreen. GUI export path с real writer/DB проверяет
+`test_results_editor_real_postgresql_save_reload_export` в изолированной PostgreSQL.
+Он также проверяет reload, RAW неизменность и отказ MANUAL SRT; worker не создаётся.
+Ручной playback Windows/original OBS MKV/MP4 и фактические результаты — progress.

@@ -35,7 +35,11 @@ class DesktopBridge(QObject):
             self._commands.put_nowait((command, payload))
         except queue.Full:
             self.event.emit(
-                DesktopEvent("ERROR", "Очередь команд заполнена. Дождитесь текущих операций.")
+                DesktopEvent(
+                    "ERROR",
+                    "Очередь команд заполнена. Дождитесь текущих операций.",
+                    getattr(payload, "request_id", None),
+                )
             )
 
     def request_close(self) -> None:
@@ -53,6 +57,7 @@ class DesktopBridge(QObject):
                     command, payload = self._commands.get(timeout=0.05)
                 except queue.Empty:
                     command = None
+                    payload = None
                 try:
                     if command:
                         if backend is None:
@@ -69,6 +74,7 @@ class DesktopBridge(QObject):
                 except Exception as error:
                     # Known application exceptions contain safe messages; unexpected exceptions
                     # don't expose SQL, settings, raw probe output or transcript via str(error).
+                    from local_transcriber.application.export import ExportError
                     from local_transcriber.infrastructure.database.session import PersistenceError
                     from local_transcriber.infrastructure.media import MediaInspectionError
                     from local_transcriber.infrastructure.settings import ConfigurationError
@@ -78,6 +84,7 @@ class DesktopBridge(QObject):
                         error,
                         (
                             PersistenceError,
+                            ExportError,
                             MediaInspectionError,
                             ConfigurationError,
                             ValueError,
@@ -92,7 +99,9 @@ class DesktopBridge(QObject):
                     else:
                         message = f"Фоновая операция не выполнена ({type(error).__name__})."
                     kind = "CONNECTION_ERROR" if command in {"refresh", "settings"} else "ERROR"
-                    self.event.emit(DesktopEvent(kind, message))
+                    self.event.emit(
+                        DesktopEvent(kind, message, getattr(payload, "request_id", None))
+                    )
         finally:
             if backend:
                 try:

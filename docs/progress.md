@@ -4,6 +4,137 @@
 
 ## Текущий шаг
 
+ШАГ 13 — PySide6: редактор, поиск и воспроизведение.
+**IMPLEMENTED / MANUAL VERIFICATION PENDING — BLOCKED FOR ACCEPTANCE**.
+CPython 3.14.4, существующая .venv; новых зависимостей/миграций нет.
+По прямому разрешению пользователя завершённый ШАГ 12 закоммичен и запушен
+в origin/main: `a923bcb`. Изменения шага 13 не коммитились/не пушились.
+ШАГ 14 не начат. Программные критерии выполнены; обязательная ручная проверка
+звука/видео на Windows original OBS MKV и MP4 ещё не подтверждена человеком.
+
+## Реализовано
+
+- «Открыть транскрипт» для completed job, отдельное окно результатов, повторное
+  открытие из PostgreSQL без модели/worker; read-only snapshot последних версий.
+- Virtual table: absolute start/end integer ms, stream_index, speaker_label, RAW
+  segment text; поиск с подсветкой полного текста/строк, stream/role filters.
+  1000 сегментов без отдельных widgets; debounce, heartbeat и latency проверены.
+- RAW/READABLE read-only, MANUAL draft/save append-only. Черновик переживает mode
+  switch; failed save его сохраняет. RAW UUID/content не изменяется в настоящей DB.
+- Экспорт выбранной сохранённой версии TXT/SRT/JSON/MD прежним ExportService и
+  atomic writer; overwrite подтверждается. MANUAL unaligned SRT отвергается,
+  исходник/версии не меняются, никакого STT. Unsaved MANUAL требует сохранения.
+- Qt Multimedia: original local source path, video/audio, pause, ms seek,
+  proportional slider без int32 ограничения времени; positionChanged подсвечивает
+  исходные active segments/overlap. Follow учитывает фильтр, Qt audio-track selector.
+- Missing source/corrupt container/codec error оставляют текст/правки/экспорт.
+  Текст/воспроизведение не смешиваются с вымышленным alignment ручных правок.
+- Result requests/events коррелируются UUID; БД/save/export в background actor.
+  Escape/close/main exit защищают dirty/saving. .env нельзя сменить при открытых
+  результатах. CLI сохранён, help обновлён; placeholder читаем в тёмной теме.
+
+Созданы `src/local_transcriber/application/results.py`, `src/local_transcriber/ui/results.py`,
+`tests/test_results.py`. Изменены `src/local_transcriber/__main__.py`,
+`src/local_transcriber/infrastructure/desktop_backend.py`, `src/local_transcriber/ui/{window,bridge,bootstrap}.py`,
+`tests/{test_cli,test_postgresql}.py`, `README.md`, `tests/README.md`,
+`docs/{architecture,decisions,requirements_traceability,progress}.md`.
+pyproject/uv.lock/.gitignore/Python/схема БД и оригинальное ТЗ не изменены.
+Собственные временные helper scripts удалены; artifacts остаются в ignored tmp/.
+
+## Реально выполненные проверки
+
+| Проверка / команда | Результат |
+| --- | --- |
+| Python --version | PASS: Python 3.14.4, прежняя .venv. |
+| uv run pytest -q tests/test_results.py tests/test_desktop.py | PASS: первичный 13 passed in 4.71s. |
+| Первый isolated PG runner | FAIL: 14 passed, 1 failed in 5.18s; только ожидание TXT без финального LF. Исправлена проверка, формат экспортера сохранён. |
+| Повтор isolated PG runner, results/desktop/PG editor/doc links | PASS: 16 passed in 5.08s, без SKIP; PostgreSQL 18.3 настоящая, отдельная test DB/random schema, cluster остановлен. |
+| Unit/Qt/editor scenarios | PASS: 1000/search/highlight/roles/stream/seek, RAW mode immutable, MANUAL draft/save/export, failed save/close guards, empty/missing source. Test doubles явно отделены от DB proof. |
+| Real PG editor integration | PASS: новая MANUAL, RAW id/content preserved, реальный TXT, failed MANUAL SRT, reload fresh adapter, manager None. |
+| Real Qt WAV | PASS: decode/load duration 3000 ms, seek 1500 ms, playback position >1600, pause и общая шкала. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS: head 0003_audio_timeline; No new upgrade operations detected. Новых migrations нет. |
+| Native Windows OBS MP4 H.264/AAC | PASS (automated): original source, 13100 ms, seek 1000, playing +17 frames, pause, NoError, exit 0. |
+| Native Windows MKV remux fixture H.264/AAC | PASS (automated): 6-second own fixture из OBS MP4, 6037 ms, seek 1000, +18 frames, pause, NoError, exit 0. Не original OBS MKV. |
+| Native DPR 1.5 / visual synthetic screenshot | PASS: MP4 +19 frames, seek/pause, NoError, exit 0; screenshot просмотрен, личный video frame скрыт. |
+| Последний focused uv pytest после corrupt-container test | PASS: 42 passed in 8.74s (results 6 + desktop 8 + CLI 28), без SKIP. Настоящий corrupt MP4 оставляет текст. |
+| Финальные pytest/Ruff/format/diff/doc links | PASS после всех правок: 43 passed in 8.49s (results 6 + desktop 8 + CLI 28 + links 1); Ruff All checks passed, 84 files formatted; git diff --check, uv lock --check (58 packages) и gitignore — PASS. |
+| Ручное прослушивание/визуальная sync на original OBS MKV и MP4 | NOT RUN: человеческое подтверждение отсутствует, MKV в Videos (включая подпапки) не найден. Поэтому gate приёмки остаётся BLOCKED. |
+| Full regression / CUDA inference / 3-hour stress | NOT RUN: целевые проверки этого этапа; распознавание не менялось, не запускалось. |
+
+Фактические команды из корня:
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'
+$env:PYTEST_QT_API = 'pyside6'
+.\.venv\Scripts\python.exe scripts/check_postgresql.py --pytest-target tests/test_results.py --pytest-target tests/test_desktop.py --pytest-target tests/test_postgresql.py::test_results_editor_real_postgresql_save_reload_export --pytest-target tests/test_repository_audit.py::test_all_internal_document_links_resolve
+uv run pytest -q tests/test_results.py tests/test_desktop.py tests/test_cli.py tests/test_repository_audit.py::test_all_internal_document_links_resolve
+uv run ruff check .
+uv run ruff format --check .
+git diff --check
+```
+
+Focused pytest использует отдельный PYTEST_DEBUG_TEMPROOT в tmp/ (Windows ACL).
+Успешный real PG runner: `tmp/step03-pg-312a13ab8600453fa9d83a1a69ca0292/checks.json`.
+Первичный assertion failure: `tmp/step03-pg-f47bee3eda324845aba03fc77749c0fe/checks.json`.
+Native metrics: `tmp/step13-native/{obs-mp4,obs-mkv-remux,obs-mp4-dpr150}.json`.
+Temporary native script использовал QT_QPA_PLATFORM=windows, synthetic 1000 rows,
+muted audio и реальные QMediaPlayer/videoSink frames; не real STT/ручное прослушивание.
+Fixture remux: `ffmpeg -nostdin -n -i OBS_MP4 -t 6 -map 0 -c copy tmp/step13-native/obs-fixture.mkv`;
+исходный OBS MP4 не изменялся. Видео/транскрипты не отправлялись внешним сервисам.
+
+## Ограничения кодеков и найденные ошибки
+
+Подтверждены H.264 High + AAC LC в OBS MP4/MKV fixture и WAV PCM16/16kHz.
+Несовместимый настоящий codec в предоставленном наборе не найден; другие codecs
+(AV1/HEVC/Opus и т.д.) не объявляются проверенными. Corrupt MP4 реально вызывает
+Qt FormatError и не скрывает транскрипт. Qt FFmpeg log сообщает UDTA retry/AV1 encoder
+MFT probe warning при этом H.264 playback успешен, это не доказательство AV1 decoder failure.
+Проигрывание может seek к ближайшему keyframe; segment target хранится в ms.
+Qt audio-track ordinals не равны ffprobe indices; дорожка выбирается явно.
+
+Исправлены: UTF-16 highlight offsets для emoji; correlation failed-save/queue-full;
+Escape и main-close guards; filtered active-row follow; readable dark placeholder;
+CLI help regression актуализирован без изменения entrypoints. Ошибка теста о TXT LF
+исправлена с сохранением прежнего формата. Нет новых production data/migration bugs.
+
+В памяти GUI находятся текст/segment snapshot, не PCM/медиа. Pagination по очень
+большим transcript/history не добавлена. Окно показывает последние RAW/READABLE/MANUAL,
+прошлые ревизии сохранены в БД. Полный текст не фильтруется, только исходная таблица.
+MANUAL alignment отсутствует. Для legacy completed jobs без RAW использовать
+существующий text raw/readable; новые GUI jobs формируют версии автоматически.
+Dictionary CRUD остаётся прежним CLI шага 10. Поиск по всей PostgreSQL — вне MVP.
+
+## Критерии приёмки и ручной checklist
+
+- [x] Прочитать/найти/исправить/сохранить/экспортировать без модели.
+- [x] Тесты 1000 segments, time selection, MANUAL/RAW preservation, missing/empty/corrupt.
+- [x] Реальная PostgreSQL и реальный Qt playback, ошибки сохраняют пользовательские данные.
+- [x] Targeted regression, Ruff/diff/docs и матрица/ADR актуализированы.
+- [ ] Ручной Windows original OBS MKV и MP4, звук/кадр/sync/codecs.
+
+Для закрытия последнего gate:
+1. Запустить `uv run python -m local_transcriber gui --env-file PATH` с рабочей локальной DB.
+2. Открыть completed transcript, проверить поиск/фильтр, mode switch и новую MANUAL;
+   вернуться RAW, экспортировать сохранённый TXT/JSON, RAW/READABLE SRT.
+3. На original OBS MP4 и MKV выбрать нужный звук плеера, послушать начало/середину,
+   кликнуть timecode, проверить кадр/звук/active row и pause; записать codecs/результат.
+4. Для неподдерживаемого codec подтвердить diagnostic и доступность текста; отсутствие
+   исходника не мешает сохранению/экспорту. Файл для этой проверки отдельно не удалять.
+
+Блокирующих дефектов реализации не обнаружено; статус **BLOCKED FOR ACCEPTANCE**
+обусловлен невыполненным обязательным ручным gate из ШАГА 13. ШАГ 14 не начинается.
+После подтверждения ручной проверки обновить progress; продолжать только по новому
+явному разрешению владельца, не автоматически.
+
+<details>
+<summary>История ШАГА 12 и предыдущих этапов</summary>
+
+# Состояние проекта
+
+Дата: 2026-10-13.
+
+## Текущий шаг
+
 ШАГ 12 — PySide6: импорт, настройки и список заданий. **READY FOR STEP 13**.
 Python 3.14.4, существующая .venv; PySide6 6.12.0, pytest-qt 4.5.0.
 ШАГ 13 не начат. До реализации по прямому разрешению владельца ШАГ 11
@@ -1394,6 +1525,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

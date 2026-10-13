@@ -16,7 +16,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="LocalTranscriber — локальное приложение для транскрибации OBS-записей.",
         epilog=(
             "Доступны диагностика, импорт и локальная транскрибация с чекпойнтами. "
-            "GUI открывается командой gui; редактор и воспроизведение появятся на следующих этапах."
+            "GUI: команда gui; просмотр RAW/READABLE/MANUAL, редактор, экспорт и воспроизведение."
         ),
         allow_abbrev=False,
         color=False,

@@ -13,12 +13,14 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 
 from local_transcriber.application.desktop import DesktopEvent, DesktopRecord, JobChoices
+from local_transcriber.application.export import ExportService
 from local_transcriber.application.media_import import ImportMedia
 from local_transcriber.application.pipeline import PipelineConfig
 from local_transcriber.application.transcript import TranscriptService
 from local_transcriber.application.worker_protocol import WorkerCommand, WorkerTask
 from local_transcriber.domain.audio import PCM_BYTES_PER_SECOND
 from local_transcriber.domain.media import AudioStreamInfo, MediaInfo
+from local_transcriber.infrastructure.database.export_store import PostgreSQLExportSource
 from local_transcriber.infrastructure.database.models import (
     AudioStream,
     MediaFile,
@@ -35,6 +37,7 @@ from local_transcriber.infrastructure.database.text_store import (
     PostgreSQLTranscriptStore,
     TermRepository,
 )
+from local_transcriber.infrastructure.export_files import AtomicExportWriter
 from local_transcriber.infrastructure.faster_whisper_engine import FasterWhisperConfig
 from local_transcriber.infrastructure.media import MediaInspector, media_fingerprint
 from local_transcriber.infrastructure.settings import AppSettings, load_settings
@@ -71,6 +74,29 @@ class DesktopService:
         )
 
     def execute(self, command: str, payload: Any = None) -> list[DesktopEvent]:
+        if command in {"result_load", "result_manual", "result_export"}:
+            self._connect()
+            source = PostgreSQLExportSource(self.factory)
+            if command == "result_load":
+                # Read-only snapshot; opening history never initializes the model/worker.
+                value = source.load(payload.job_id)
+                kind = "RESULT_LOADED"
+            elif command == "result_manual":
+                if payload.base_id is None:
+                    raise ValueError("Не выбрана исходная версия правок.")
+                service = TranscriptService(
+                    PostgreSQLTranscriptStore(self.factory), TermRepository(self.factory)
+                )
+                value = service.manual(payload.job_id, payload.base_id, payload.content)
+                kind = "MANUAL_SAVED"
+            else:
+                if payload.destination is None or payload.options is None:
+                    raise ValueError("Не задан путь или формат экспорта.")
+                value = ExportService(source, AtomicExportWriter()).export(
+                    payload.job_id, payload.destination, payload.options, version_id=payload.base_id
+                )
+                kind = "RESULT_EXPORTED"
+            return [DesktopEvent(kind, value, payload.request_id)]
         if command == "refresh":
             self._connect()
             with transaction(self.factory) as session:
