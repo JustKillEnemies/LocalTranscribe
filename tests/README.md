@@ -158,3 +158,16 @@ LOCAL_TRANSCRIBER_WORKER_SMOKE (локальное видео со stream 1), of
 FFmpeg и test PostgreSQL; обрабатывает первые 45 s без публикации текста.
 Следует повторять через check_postgresql.py --pytest-target для нужного набора;
 полный предыдущий suite для каждого изменения не требуется.
+
+## Текст, шаг 10
+
+`test_text.py` — целевые unit cases: byte-for-byte исходные строки/RAW, повторы,
+стоп-слова, quotes/numbers/English/PostgreSQL, пустые сегменты, labels/paragraphs,
+неоднозначные/длинные/выключенные варианты, parser и локальные UTF-8 file errors.
+`test_postgresql.py::test_text_*`, `test_term_crud_import_updates_and_atomic_rollback`
+и `test_empty_completed_transcript_versions` используют реальную отдельную DB:
+immutable RAW, append-only READABLE/MANUAL, конкуренция, rollback, пустой результат,
+CRUD/upsert словаря и CLI с CRLF ручным файлом. Связь CLI с test schema подменяется,
+сама PostgreSQL и SQL-операции — реальные. Тесты вызываются выборочно через
+`scripts/check_postgresql.py --pytest-target ...`; полные GPU/stress gates не нужны
+для изменения чистых правил текста и выполняются на своих этапах.

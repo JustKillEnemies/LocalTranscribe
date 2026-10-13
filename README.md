@@ -377,3 +377,56 @@ job. При аварии supervisor ставит INTERRUPTED и позволяе
 Windows Job Object гарантирует cleanup собственных FFmpeg children при убийстве
 worker. Рабочая БД/службы и чужие процессы не затрагиваются. restart/shutdown —
 операции завершения с тайм-аутом; будущий GUI вызывает их вне Qt event loop.
+
+## Текст и словарь
+
+После завершения `transcribe` основной процесс сохраняет RAW и новую READABLE,
+сообщая `TEXT_COMPLETED`. Ошибка обработки текста не удаляет результаты STT:
+повторить этот этап можно командой `text readable`, без повторного распознавания.
+Версии и словарь используют существующие AppSettings/PostgreSQL; миграции не менялись.
+
+```powershell
+uv run python -m local_transcriber text raw JOB_UUID
+uv run python -m local_transcriber text readable JOB_UUID
+uv run python -m local_transcriber text readable JOB_UUID --paragraph-gap-ms 3000 --no-terms
+uv run python -m local_transcriber text versions JOB_UUID
+uv run python -m local_transcriber text show JOB_UUID --version VERSION_UUID
+uv run python -m local_transcriber text manual JOB_UUID --base VERSION_UUID --file 'C:/LocalData/Ручная версия.txt'
+uv run python -m local_transcriber terms add PostgreSQL --variant postgres --variant постгрес
+uv run python -m local_transcriber terms list
+uv run python -m local_transcriber terms update TERM_UUID PostgreSQL --variant постгрес --disabled
+uv run python -m local_transcriber terms delete TERM_UUID
+uv run python -m local_transcriber terms import 'C:/LocalData/Словарь.txt'
+```
+
+`JOB_UUID`, `VERSION_UUID`, `TERM_UUID` заменяются реальными UUID. Каждая leaf-команда
+поддерживает `--env-file`. Вывод — локальный JSON; экспорт файлов относится к шагу 11.
+`text versions` возвращает номера/типы/метаданные, `text show` — выбранный текст.
+`terms update` заменяет варианты целиком; без `--disabled` термин включается.
+
+RAW собирается по номеру дорожки/времени, сохраняет все символы сегментов,
+добавляя только необходимые разделительные пробелы и пустую строку между дорожками.
+Оригинальные сегменты и времена остаются доступными отдельно. RAW-версия создаётся
+для COMPLETED; у прерванного задания доступны уже сохранённые исходные checkpoints.
+Повтор RAW возвращает ту же версию. Каждый READABLE/MANUAL добавляется отдельно:
+новый READABLE не заменяет MANUAL, ручная версия может основываться на любой версии
+того же задания. Редактор GUI появится на шаге 13.
+
+READABLE использует `conservative-text` v1: нормализует пробелы, убирает пробел
+перед существующей пунктуацией, кроме цифровых границ, добавляет конечную точку
+при отсутствии знака. Абзац начинается при смене дорожки/подписи, паузе >=2000 ms
+или достижении 800 символов на границе сегмента. Подписи берутся из данных;
+идентификация говорящих не выполняется. Повторы, стоп-слова, цифры, цитаты и регистр
+сохраняются; смысловые запятые/перефразирование/LLM и удаление слов не используются.
+`--no-terminal-period` отключает добавление точки.
+
+Словарь: UTF-8 с необязательным BOM, по одной строке на термин:
+`canonical<TAB>variant|variant`; строка только с canonical также допустима.
+Пустые строки и комментарии `#` игнорируются. Например `PostgreSQL`, TAB,
+`postgres|постгрес`. Импорт ограничен 4 MiB/10000 строками, ручной текст — 16 MiB;
+ошибка формата/кодировки/SQL откатывает импорт целиком. Совпадающий canonical
+обновляет варианты и enabled, остальные записи сохраняются.
+Замены работают по границам слов, длинные варианты первыми, за один проход;
+вариант нескольких включённых терминов оставляется без изменения.
+Метаданные READABLE содержат правила, версию обработчика, снимок словаря и ссылку
+на RAW; применение словаря как STT prompt не включалось в этом шаге.

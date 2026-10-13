@@ -4,6 +4,121 @@
 
 ## Текущий шаг
 
+ШАГ 10 — RAW-транскрипт, читаемый текст и версионирование. **READY FOR STEP 11**.
+Python 3.14.4, существующая .venv. ШАГ 11 не начат.
+По прямому разрешению владельца ШАГ 09 закоммичен и запушен до начала шага 10:
+`39b646b`, origin/main. Изменения шага 10 не коммитились/не пушились.
+
+## Реализовано
+
+- Domain: immutable TextSegment/Term/TextRules, aggregation по stream/time,
+  SHA-256 source digest и детерминированный conservative-text v1.
+- RAW сохраняет символы сегментов, включая исходные пробелы, повторы и цифры;
+  сборка добавляет лишь граничные разделители. SQL-триггер запрещает UPDATE RAW.
+- TextService и PostgreSQL adapter: RAW snapshot после COMPLETED, повтор RAW —
+  прежний ID; новые READABLE/MANUAL с последовательными номерами под job lock.
+- Ручная редакция с base/RAW ссылками сохраняется отдельно, включая Windows CRLF
+  и пустой текст. Новый READABLE сохраняет все предыдущие MANUAL/READABLE.
+- Читаемый режим: whitespace, безопасное оформление существующей пунктуации,
+  конечная точка, абзацы по pause/stream/speaker/length; слова и смысл не переписываются.
+- Терминология: longest-first whole-word single-pass, ambiguous/disabled skip;
+  PostgreSQL CRUD, включение/выключение и атомарный UTF-8/BOM импорт/upsert.
+- Метаданные READABLE: processor/rules_version, настройки, снимок словаря,
+  source_digest и raw_version_id; воспроизводимость без LLM/сети.
+- CLI text raw/readable/manual/versions/show и terms list/add/update/delete/import;
+  проверка файлов/правил, лимиты, понятные ошибки с сохранностью данных.
+- CLI transcribe после JOB_COMPLETED сохраняет RAW/READABLE в основном процессе,
+  сообщает TEXT_COMPLETED; повтор текстового этапа не требует STT.
+- Существующие точки входа сохранены, новых зависимостей/миграций нет.
+- README, архитектура, ADR-067–071, матрица требований и инструкция тестов обновлены.
+
+Новые файлы: domain/text.py, application/transcript.py,
+infrastructure/database/text_store.py, infrastructure/text_cli.py, tests/test_text.py.
+Изменены: __main__.py, transcribe_cli.py, tests/test_postgresql.py, tests/README.md,
+README.md, docs/architecture.md, docs/decisions.md, docs/requirements_traceability.md
+и этот документ. Все пути Python относительно src/local_transcriber/.
+
+## Проверки
+
+Выполнен целевой набор, без полного regression/GPU/stress. Runner использовал
+PostgreSQL 18.3 в собственной отдельной local_transcriber_test на случайном
+loopback-порту, random schema на тест; рабочая БД и служба не менялись.
+Собственный кластер остановлен по завершении каждого прогона.
+
+Итоговая команда из корня:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_postgresql.py --pytest-target tests/test_text.py --pytest-target tests/test_cli.py --pytest-target tests/test_repository_audit.py::test_all_internal_document_links_resolve --pytest-target tests/test_postgresql.py::test_text_versions_preserve_raw_and_manual_after_reprocessing --pytest-target tests/test_postgresql.py::test_text_foreign_base_incomplete_job_and_bad_snapshot_rollback --pytest-target tests/test_postgresql.py::test_text_parallel_version_numbers_are_unique --pytest-target tests/test_postgresql.py::test_term_crud_import_updates_and_atomic_rollback --pytest-target tests/test_postgresql.py::test_empty_completed_transcript_versions --pytest-target tests/test_postgresql.py::test_text_cli_real_database_versions_and_manual_file
+```
+
+| Проверка / фактическая команда | Статус | Результат |
+| --- | --- | --- |
+| python --version (runner .venv) | PASS | Python 3.14.4. |
+| uv run pytest -q (targets выше, runner) | PASS | 49 passed in 7.24s, без SKIP; 14 text unit, 28 CLI regression, 1 doc-links, 6 real PG integration. |
+| RAW/READABLE/MANUAL real PostgreSQL | PASS | Точный RAW до/после редактирования/пересчёта, immutable SQL UPDATE, уникальные номера, 4 parallel RAW/6 READABLE, чужая base/digest mismatch, пустой результат. |
+| Словарь и отказы real PostgreSQL | PASS | CRUD/enabled/upsert, duplicate constraint, реальный SQL CHECK failure откатывает целиком предшествующее обновление словаря. |
+| Локальные файлы и CLI | PASS | Кириллица/пробелы в пути, UTF-8/BOM/CRLF, missing file, invalid encoding/format/size/rules; реальные текстовые команды на test schema. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS | 0003_audio_timeline (head); No new upgrade operations detected. |
+| uv run ruff check . (runner), финальный .venv/Scripts/ruff.exe check . | PASS | All checks passed. |
+| uv run ruff format --check . после исправления форматирования | PASS | 68 files already formatted. |
+| git diff --check | PASS | Whitespace ошибок нет; LF/CRLF warnings не являются ошибкой. |
+| Внутренние ссылки README/docs | PASS | Все цели существуют; после обновления progress отдельно 1 passed in 0.03s. |
+| git check-ignore --no-index (6 приватных путей) | PASS | .env, media, model, tmp, transcripts, exports игнорируются. |
+| Полный regression/GPU/STT→text E2E/long stress | NOT RUN | Ограничены проверки текущим текстовым этапом; GPU/STT повторно не запускались, GUI/экспорт — следующие шаги. |
+| Ручная интерактивная проверка CLI с пользовательскими данными | NOT RUN | Для этого шага выполнялись автоматические synthetic проверки на отдельной DB. |
+
+Артефакт последнего runner (игнорируется Git):
+`tmp/step03-pg-2f0d826aa03f4a75baee40efec9ef882/checks.json`.
+Этот runner завершился exit 1 только на format --check после успешных pytest и
+миграций: одно условие было не отформатировано. Оно исправлено, затем отдельно
+выполнены успешные финальные Ruff check/format --check и git diff --check;
+повторять весь DB набор после whitespace-only изменения не потребовалось.
+
+## Исправления по результатам проверок
+
+- Тест ручного файла сравнивает сохранённый текст с decode исходных bytes,
+  а не universal-newline read_text: Windows CRLF сохраняется точно.
+- Проверка сохранности прежних сегментов не предполагает порядок случайных UUID
+  при совпадающих временах старого iter_segments. Новый RAW явно сортирует stream_index.
+- Ruff B008 устранён: экземпляры правил не создаются в аргументах по умолчанию.
+- Финальный format failure исправлен; неизменность бизнес-логики сохранена.
+
+## Ограничения и ручной чек-лист
+
+- Смысловые запятые, устранение повторов/стоп-слов, LLM, диаризация и STT prompting
+  не включены; правила оформления намеренно сохраняют слова. Неполную пунктуацию
+  можно исправить отдельным MANUAL; редактор GUI относится к шагу 13.
+- RAW snapshot финализируется только для COMPLETED. При crash/pause/cancel
+  доступны ранее сохранённые segments, а не объявленный полным RAW.
+- Driver segments batches ограничены 1000; итоговый текст/snapshot/история версий
+  материализуется в RAM. Это не медиа/PCM; нагрузочная оценка текстовой истории — 15.
+- При сбое текстового этапа COMPLETED STT остаётся доступным; выполните text readable
+  после восстановления БД. Новый READABLE не выбирает/не перезаписывает MANUAL.
+- Проверка пользователем: text raw/readable/versions; сохранить manual из UTF-8
+  файла, пересчитать readable с --no-terms, открыть manual через text show;
+  terms import/list/update с disabled. Используйте собственные UUID и локальные пути.
+
+## Критерии приёмки
+
+- [x] Дословный RAW сохраняется неизменным и доступен после обработки.
+- [x] READABLE — отдельный текст с абзацами/пунктуацией и без подмены слов/фактов.
+- [x] MANUAL сохраняется отдельно и не теряется при повторном READABLE.
+- [x] PostgreSQL версии/словарь, безопасная терминология, processor/rules version.
+- [x] Unit и реальная PG integration, негативные сценарии, Ruff/diff; документация обновлена.
+
+Блокирующих проблем текущего этапа нет. Следующий этап — **ШАГ 11, экспорт**,
+только после нового разрешения владельца.
+
+<details>
+<summary>История ШАГА 09 и предыдущих этапов</summary>
+
+
+# Состояние проекта
+
+Дата: 2026-10-13.
+
+## Текущий шаг
+
 ШАГ 09 — worker, IPC, очередь и управление заданиями. **READY FOR STEP 10**.
 Python 3.14.4, существующая .venv. ШАГ 10 не начат.
 
@@ -1033,6 +1148,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

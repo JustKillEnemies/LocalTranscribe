@@ -61,7 +61,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     transcribe.add_argument(
         "--end-ms", type=int, help="конец обрабатываемого диапазона от начала файла"
     )
+    from local_transcriber.infrastructure.text_cli import add_text_commands
+
+    add_text_commands(commands)
     arguments = parser.parse_args(argv)
+    if arguments.command in {"text", "terms"}:
+        from local_transcriber.infrastructure.database.session import PersistenceError
+        from local_transcriber.infrastructure.settings import ConfigurationError
+        from local_transcriber.infrastructure.text_cli import run_text_command
+
+        try:
+            print(json.dumps(run_text_command(arguments), ensure_ascii=False, indent=2))
+            return 0
+        except PersistenceError as error:
+            print(f"Ошибка PostgreSQL: {error}", file=sys.stderr)
+            return 3
+        except (ConfigurationError, ValueError) as error:
+            print(f"Ошибка: {error}", file=sys.stderr)
+            return 2
+        except OSError:
+            print("Ошибка: локальный текстовый файл недоступен.", file=sys.stderr)
+            return 2
     if arguments.command == "transcribe":
         from local_transcriber.application.pipeline import PipelineError
         from local_transcriber.infrastructure.database.session import PersistenceError

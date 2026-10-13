@@ -763,3 +763,206 @@ def test_real_gpu_worker_short_smoke(postgres, capsys) -> None:
                 f"GPU_WORKER PASS seconds={time.perf_counter() - started:.3f} words={count} pid={manager.pid}",
                 flush=True,
             )
+
+
+def _completed_text_job(factory):
+    media, streams, jobs = seed(factory)
+    chunks = ChunkRepository(factory)
+    chunks.save_result(jobs[0], streams[1], 0, 0, 1000, [SegmentInput(10, 20, "English", "System")])
+    chunks.save_result(
+        jobs[0],
+        streams[0],
+        0,
+        0,
+        1000,
+        [
+            SegmentInput(200, 300, "  постгрес", "Mic"),
+            SegmentInput(10, 20, "я я", "Mic"),
+        ],
+    )
+    repository = JobRepository(factory)
+    for state in (JobStatus.ANALYZING, JobStatus.PROCESSING, JobStatus.COMPLETED):
+        repository.transition(jobs[0], state)
+    return jobs, streams
+
+
+def test_text_versions_preserve_raw_and_manual_after_reprocessing(postgres) -> None:
+    from local_transcriber.application.transcript import TranscriptService
+    from local_transcriber.domain.text import Term, TextRules, VersionType
+    from local_transcriber.infrastructure.database.text_store import (
+        PostgreSQLTranscriptStore,
+        TermRepository,
+    )
+
+    engine, factory, config = postgres
+    jobs, streams = _completed_text_job(factory)
+    terms = TermRepository(factory)
+    terms.create(Term("PostgreSQL", ("постгрес",)))
+    service = TranscriptService(PostgreSQLTranscriptStore(factory), terms)
+    raw = service.raw(jobs[0])
+    assert raw.content == "я я  постгрес\n\nEnglish"
+    original = raw.content.encode("utf-8")
+    assert service.raw(jobs[0]).id == raw.id
+    readable = service.readable(jobs[0])
+    assert readable.content == "[Дорожка 0] Mic: я я PostgreSQL.\n\n[Дорожка 1] System: English."
+    assert readable.metadata["raw_version_id"] == str(raw.id)
+    assert readable.metadata["processor"] == "conservative-text"
+    manual = service.manual(jobs[0], readable.id, "Моя точная редакция: 42,5\n")
+    second = service.readable(jobs[0], TextRules(normalize_terms=False, terminal_period=False))
+    assert "постгрес" in second.content
+    assert [v.number for v in service.versions(jobs[0])] == [1, 2, 3, 4]
+    assert [v.kind for v in service.versions(jobs[0])] == [
+        VersionType.RAW,
+        VersionType.READABLE,
+        VersionType.MANUAL,
+        VersionType.READABLE,
+    ]
+    assert service.versions(jobs[0])[2] == manual
+    assert service.raw(jobs[0]).content.encode("utf-8") == original
+    assert sorted(
+        row.raw_text for row in ChunkRepository(factory).iter_segments(jobs[0])
+    ) == sorted(
+        [
+            "я я",
+            "English",
+            "  постгрес",
+        ]
+    )
+    with pytest.raises(PersistenceError):
+        with transaction(factory) as session:
+            session.execute(
+                update(TranscriptVersion)
+                .where(TranscriptVersion.id == raw.id)
+                .values(content="overwrite")
+            )
+    assert service.raw(jobs[0]).content.encode("utf-8") == original
+
+
+def test_text_foreign_base_incomplete_job_and_bad_snapshot_rollback(postgres) -> None:
+    from local_transcriber.application.transcript import TranscriptService
+    from local_transcriber.domain.text import ProcessedText
+    from local_transcriber.infrastructure.database.text_store import (
+        PostgreSQLTranscriptStore,
+        TermRepository,
+    )
+
+    engine, factory, config = postgres
+    jobs, streams = _completed_text_job(factory)
+    store = PostgreSQLTranscriptStore(factory)
+    service = TranscriptService(store, TermRepository(factory))
+    with pytest.raises(ValueError, match="completed job"):
+        service.raw(jobs[1])
+    raw = service.raw(jobs[0])
+    with pytest.raises(ValueError, match="belong"):
+        service.manual(jobs[1], raw.id, "foreign")
+    with pytest.raises(ValueError, match="NUL"):
+        service.manual(jobs[0], raw.id, "bad\0text")
+    with pytest.raises(ValueError, match="snapshot"):
+        store.save_readable(jobs[0], raw.id, ProcessedText("bad", {"source_digest": "wrong"}))
+    with pytest.raises(PersistenceError, match="не найдено"):
+        service.raw(uuid4())
+    assert len(service.versions(jobs[0])) == 1
+    assert service.versions(jobs[1]) == ()
+    assert service.manual(jobs[0], raw.id, "").content == ""
+
+
+def test_text_parallel_version_numbers_are_unique(postgres) -> None:
+    from local_transcriber.application.transcript import TranscriptService
+    from local_transcriber.infrastructure.database.text_store import (
+        PostgreSQLTranscriptStore,
+        TermRepository,
+    )
+
+    engine, factory, config = postgres
+    jobs, streams = _completed_text_job(factory)
+    service = TranscriptService(PostgreSQLTranscriptStore(factory), TermRepository(factory))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        versions = list(pool.map(lambda _: service.raw(jobs[0]), range(4)))
+        assert len({v.id for v in versions}) == 1
+        created = list(pool.map(lambda _: service.readable(jobs[0]), range(6)))
+    assert sorted(v.number for v in created) == list(range(2, 8))
+    assert len(service.versions(jobs[0])) == 7
+
+
+def test_term_crud_import_updates_and_atomic_rollback(postgres) -> None:
+    from local_transcriber.application.transcript import parse_terms
+    from local_transcriber.domain.text import Term
+    from local_transcriber.infrastructure.database.text_store import TermRepository
+
+    engine, factory, config = postgres
+    repository = TermRepository(factory)
+    identifier = repository.create(Term("PostgreSQL", ("postgres",)))
+    repository.update(identifier, Term("PostgreSQL", ("постгрес",), False))
+    assert repository.enabled_terms() == ()
+    assert repository.import_terms(parse_terms("PostgreSQL\tpostgres|постгрес\nPython")) == 2
+    assert repository.list()[0].id == identifier
+    assert len(repository.enabled_terms()) == 2
+    with pytest.raises(PersistenceError):
+        repository.create(Term("PostgreSQL"))
+    before = repository.list()
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE custom_terms ADD CONSTRAINT test_reject_term CHECK (canonical_form <> 'Rejected')"
+            )
+        )
+    with pytest.raises(PersistenceError):
+        repository.import_terms((Term("PostgreSQL", ("changed",)), Term("Rejected")))
+    assert repository.list() == before
+    with pytest.raises(ValueError, match="Duplicate"):
+        repository.import_terms((Term("PG"), Term("pg")))
+    assert repository.list() == before
+    repository.delete(identifier)
+    assert [row.term.canonical for row in repository.list()] == ["Python"]
+    with pytest.raises(ValueError, match="not found"):
+        repository.update(identifier, Term("PG"))
+    with pytest.raises(ValueError, match="not found"):
+        repository.delete(identifier)
+
+
+def test_empty_completed_transcript_versions(postgres) -> None:
+    from local_transcriber.application.transcript import TranscriptService
+    from local_transcriber.infrastructure.database.text_store import (
+        PostgreSQLTranscriptStore,
+        TermRepository,
+    )
+
+    engine, factory, config = postgres
+    media, streams, jobs = seed(factory)
+    ChunkRepository(factory).save_result(jobs[0], streams[0], 0, 0, 1000, [])
+    for status in (JobStatus.ANALYZING, JobStatus.PROCESSING, JobStatus.COMPLETED):
+        JobRepository(factory).transition(jobs[0], status)
+    service = TranscriptService(PostgreSQLTranscriptStore(factory), TermRepository(factory))
+    assert service.raw(jobs[0]).content == service.readable(jobs[0]).content == ""
+    assert len(service.versions(jobs[0])) == 2
+
+
+def test_text_cli_real_database_versions_and_manual_file(
+    postgres, tmp_path, monkeypatch, capsys
+) -> None:
+    import json
+
+    from local_transcriber.__main__ import main
+    from local_transcriber.infrastructure.database import session as sessions
+
+    engine, factory, config = postgres
+    jobs, streams = _completed_text_job(factory)
+    # Redirect composition to this test's real PostgreSQL schema, never to the working DB.
+    monkeypatch.setattr(sessions, "make_engine", lambda settings: engine)
+    assert main(["text", "raw", str(jobs[0])]) == 0
+    raw = json.loads(capsys.readouterr().out)
+    path = tmp_path / "Ручная версия.txt"
+    path.write_text("Мои правки\n", encoding="utf-8")
+    assert main(["text", "manual", str(jobs[0]), "--base", raw["id"], "--file", str(path)]) == 0
+    manual = json.loads(capsys.readouterr().out)
+    assert manual["content"] == path.read_bytes().decode("utf-8")
+    assert main(["text", "show", str(jobs[0]), "--version", manual["id"]]) == 0
+    assert json.loads(capsys.readouterr().out)["content"] == path.read_bytes().decode("utf-8")
+    assert main(["text", "versions", str(jobs[0])]) == 0
+    assert len(json.loads(capsys.readouterr().out)["versions"]) == 2
+    assert main(["terms", "add", "PostgreSQL", "--variant", "постгрес"]) == 0
+    term = json.loads(capsys.readouterr().out)
+    assert main(["terms", "delete", term["id"]]) == 0
+    capsys.readouterr()
+    assert main(["text", "show", str(jobs[0]), "--version", str(uuid4())]) == 2
+    assert "does not belong" in capsys.readouterr().err

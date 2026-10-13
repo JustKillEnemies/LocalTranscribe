@@ -13,12 +13,17 @@ from local_transcriber.application.pipeline import (
     PipelineConfig,
     PipelineError,
 )
+from local_transcriber.application.transcript import TranscriptService
 from local_transcriber.application.worker_protocol import WorkerCommand, WorkerTask
 from local_transcriber.infrastructure.database.pipeline_store import PostgreSQLPipelineStore
 from local_transcriber.infrastructure.database.session import (
     PersistenceError,
     make_engine,
     session_factory,
+)
+from local_transcriber.infrastructure.database.text_store import (
+    PostgreSQLTranscriptStore,
+    TermRepository,
 )
 from local_transcriber.infrastructure.faster_whisper_engine import (
     FasterWhisperConfig,
@@ -127,6 +132,22 @@ def run_transcription(
                     if event.ticket != task.ticket:
                         continue
                     if event.kind == "COMPLETED":
+                        factory = session_factory(database)
+                        text_service = TranscriptService(
+                            PostgreSQLTranscriptStore(factory), TermRepository(factory)
+                        )
+                        readable = text_service.readable(event.job_id)
+                        print(
+                            json.dumps(
+                                {
+                                    "status": "TEXT_COMPLETED",
+                                    "job_id": str(event.job_id),
+                                    "version_id": str(readable.id),
+                                },
+                                ensure_ascii=False,
+                            ),
+                            flush=True,
+                        )
                         return event.job_id
                     if event.kind in {"ERROR", "INTERRUPTED", "CANCELLED", "IPC_ERROR"}:
                         raise PipelineError(f"Задание {event.job_id or task.ticket}: {event.kind}.")
