@@ -585,3 +585,96 @@ def test_additional_uniqueness_constraints(postgres, kind: str) -> None:
         assert session.scalar(select(func.count()).select_from(TranscriptSegment)) == 1
         assert session.scalar(select(func.count()).select_from(TranscriptVersion)) == 1
         assert session.scalar(select(func.count()).select_from(CustomTerm)) == 1
+
+
+def test_pipeline_checkpoints_and_resume(postgres) -> None:
+    from test_pipeline import Decoder, Recognizer, Segmenter, media
+
+    from local_transcriber.application.pipeline import PipelineError, TranscriptionPipeline
+    from local_transcriber.infrastructure.database.pipeline_store import PostgreSQLPipelineStore
+
+    engine, factory, _ = postgres
+    store, decoder, recognizer = PostgreSQLPipelineStore(factory), Decoder(), Recognizer()
+    recognizer.fail_on = 3
+    pipeline = TranscriptionPipeline(decoder, Segmenter(), recognizer, store, lambda: "fixture:v1")
+    with pytest.raises(PipelineError):
+        pipeline.execute(media(), (1,))
+    with transaction(factory) as session:
+        job = session.scalar(select(TranscriptionJob))
+        job_id = job.id
+        assert job.status == "FAILED"
+        assert job.completed_chunks == 2
+        assert session.scalar(select(func.count()).select_from(TranscriptSegment)) == 2
+    recognizer.fail_on = None
+    pipeline.execute(media(), (1,), resume=job_id)
+    count = len(decoder.calls)
+    pipeline.execute(media(), (1,), resume=job_id)
+    assert len(decoder.calls) == count
+    with transaction(factory) as session:
+        job = session.get(TranscriptionJob, job_id)
+        assert job.status == "COMPLETED"
+        assert job.completed_chunks == job.total_chunks == 5
+        assert session.scalar(select(func.count()).select_from(TranscriptSegment)) == 5
+    assert decoder.active == 0
+
+
+def test_pipeline_real_hour(postgres, capsys) -> None:
+    import time
+    from dataclasses import replace
+
+    from local_transcriber.application.pipeline import PipelineConfig, TranscriptionPipeline
+    from local_transcriber.infrastructure.database.pipeline_store import PostgreSQLPipelineStore
+    from local_transcriber.infrastructure.faster_whisper_engine import (
+        FasterWhisperConfig,
+        FasterWhisperEngine,
+    )
+    from local_transcriber.infrastructure.ffmpeg_decoder import FFmpegMediaDecoder
+    from local_transcriber.infrastructure.media import media_fingerprint
+    from local_transcriber.infrastructure.silero_segmenter import SileroSpeechSegmenter
+
+    source = os.environ.get("LOCAL_TRANSCRIBER_PIPELINE_SMOKE")
+    if not source:
+        pytest.skip("60-minute private-media gate requires LOCAL_TRANSCRIBER_PIPELINE_SMOKE")
+    settings = load_settings()
+    info = MediaInspector(settings.ffprobe_path, timeout=10).inspect(Path(source))
+    assert info.duration_ms >= 3_600_000
+    assert info.size_bytes > 1_000_000_000
+    _, factory, _ = postgres
+    before = Path(source).stat()
+    runtime = FasterWhisperEngine(
+        replace(FasterWhisperConfig.from_settings(settings), word_timestamps=True)
+    )
+    started = time.perf_counter()
+
+    def progress(job, total, completed):
+        with capsys.disabled():
+            print(
+                f"HOUR_SMOKE checkpoint={completed}/{total} elapsed={time.perf_counter() - started:.1f}s",
+                flush=True,
+            )
+
+    pipeline = TranscriptionPipeline(
+        FFmpegMediaDecoder(settings.ffmpeg_path),
+        SileroSpeechSegmenter(),
+        runtime,
+        PostgreSQLPipelineStore(factory),
+        lambda: media_fingerprint(info.path),
+        config=PipelineConfig(end_ms=3_600_000),
+        on_progress=progress,
+    )
+    job = pipeline.execute(info, (1,))
+    with transaction(factory) as session:
+        stored = session.get(TranscriptionJob, job)
+        assert stored.status == "COMPLETED"
+        assert stored.total_chunks == stored.completed_chunks == 12
+        count = session.scalar(select(func.count()).select_from(TranscriptSegment))
+        assert count > 0
+        assert session.scalar(select(func.max(TranscriptSegment.end_ms))) <= 3_600_000
+    assert runtime.active_compute_type == "float16"
+    after = Path(source).stat()
+    assert (before.st_size, before.st_mtime_ns) == (after.st_size, after.st_mtime_ns)
+    with capsys.disabled():
+        print(
+            f"HOUR_SMOKE PASS seconds={time.perf_counter() - started:.3f} segments={count} compute=float16",
+            flush=True,
+        )

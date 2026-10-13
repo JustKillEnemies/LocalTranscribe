@@ -1,5 +1,91 @@
 # Состояние проекта
 
+Дата: 2026-10-13.
+
+## Текущий шаг
+
+ШАГ 08 — конвейер длинных файлов и чекпойнты. **READY FOR STEP 09**.
+Python 3.14.4, существующая .venv. ШАГ 09 не начат.
+
+## Выполнено
+
+- Application pipeline: job → streams → logical chunks → decode → VAD → STT → persist.
+- Default core 5 min, configurable 1–15 min, overlap 1000 ms; bounded decoder queue/VAD.
+- Word source-ms ownership и time/text dedup сохраняют раздельные реальные повторы.
+- Атомарные RAW+COMPLETED checkpoints существующего ChunkRepository; progress из БД.
+- Explicit resume только неготовых chunks; fingerprint и model/VAD/chunk manifest gate.
+- CLI transcribe, --stream-index, --resume, --chunk-ms, --overlap-ms, --end-ms.
+- Журнал pipeline-errors.log с job_id; безопасные ошибки и закрытие decoder iterator.
+- Новых зависимостей/схем/миграций нет; ADR-056–060 и матрица обновлены.
+
+## Фактические проверки
+
+По просьбе владельца выбран небольшой целевой набор, без полного регрессионного
+suite предыдущих шагов. Runner создал отдельный SCRAM PostgreSQL cluster/test DB
+из установленных binaries и остановил его; рабочая БД/служба не менялись.
+
+| Проверка | Статус | Результат |
+| --- | --- | --- |
+| uv run pytest -q tests/test_pipeline.py tests/test_cli.py tests/test_transcription.py::test_zero_duration_word_alignment_keeps_text_inside_audio tests/test_postgresql.py::test_pipeline_checkpoints_and_resume tests/test_postgresql.py::test_pipeline_real_hour | PASS | 36 passed in 202.02s; реальные PostgreSQL 18.3, FFmpeg и CUDA, без SKIP. |
+| Дополнительный tests/test_pipeline.py после новых guard-тестов | PASS | 8 passed in 0.50s: BaseException, CLI routing, decode <=15 min. |
+| Fake 25-min crash/resume/repeat | PASS | Два chunks сохранены до сбоя; resume оставшихся; completed repeat без decode/STT/дублей. |
+| Fingerprint/model parameters mismatch | PASS | Resume блокируется, подтверждённые результаты сохраняются. |
+| Реальный 60-min прогон | PASS | 12/12 checkpoints, 7495 word-level сегментов; 196.312 s pipeline, float16. |
+| Memory snapshot после ~30 min | PASS | RSS ~762 MiB, peak WorkingSet ~1955 MiB (включая load модели); общая GPU memory ~4120 MiB. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS | 0003_audio_timeline (head), No new upgrade operations detected. |
+| uv run ruff check . | PASS | All checks passed. |
+| uv run ruff format --check . | PASS | 58 files already formatted. |
+| git diff --check | PASS | Whitespace ошибок нет. |
+| Полный regression / 3-hour stress / WER | NOT RUN | Ограничены проверки текущим этапом; широкая качественная/stress приёмка — 15. |
+
+60-min gate обработал первые 3600000 ms локального OBS-видео длительностью
+5717000 ms и размером 4405287908 bytes из ранее разрешённого Videos. Выбрана
+дорожка 1. Модель large-v3-turbo offline, ru/transcribe, beam 5, float16,
+word_timestamps=true. Исходные size/mtime_ns неизменны. Текст/PCM/видео в Git не
+добавлены; PostgreSQL-тест удалил свою случайную схему с результатами. Подробная
+эталонная разметка, WER и прослушивание всех границ не выполнялись.
+
+## Найденные и исправленные ошибки
+
+1. Whisper word alignment иногда выдаёт нулевой duration. Раньше первый logical
+   chunk останавливался TranscriptionError. Слово теперь сохраняется как 1 ms
+   внутри input; обратный interval по-прежнему отвергается. Добавлен regression test.
+2. Windows cp1251 прерывал вывод pytest UnicodeEncodeError. Runner теперь явно
+   использует UTF-8 для своего stdout и дочернего Python; собственный PG всё равно
+   был остановлен в finally до исправления. Успешный повтор подтверждён.
+3. Decoder generator теперь явно закрывается также при BaseException; тест
+   подтверждает отсутствие активного decoder после abrupt interruption.
+
+## Ограничения и ручной чек-лист
+
+- Сейчас CLI синхронный и один writer на job; worker/FIFO/pause/cancel/автоматическое
+  INTERRUPTED recovery — шаг 09. Explicit --resume уже работает после hard stop.
+- Pipeline включает words в production CLI; fallback без word timestamps имеет
+  более грубую midpoint ownership целого сегмента.
+- Dedup — локальная time/text эвристика; не гарантируется отсутствие всех ошибок
+  alignment. Раздельные повторы покрыты тестом; WER/CER и полная boundary-разметка — 15.
+- Memory snapshot не заменяет stress/profile; PCM и pending results ограничены
+  текущим logical chunk, а peak load модели отдельно входит в RSS.
+- Для ручного запуска: настроить локальную рабочую БД и миграции; transcribe с
+  выбранным stream index; сохранить job_id; повторить --resume с теми же параметрами.
+- Блокирующих проблем для шага 09 нет.
+
+## Критерии готовности / следующий этап
+
+- [x] Decode/VAD/STT/persist и CLI реализованы.
+- [x] Atomic checkpoints/progress/resume без повторной записи RAW проверены в PG.
+- [x] Fingerprint/manifest validation и time/text dedup проверены.
+- [x] Fake 25-min и реальный 60-min pipeline завершены, память ограничена архитектурно.
+- [x] Целевые pytest/Ruff/Alembic/diff проходят.
+- [ ] Владелец разрешил ШАГ 09.
+
+Следующий шаг — 09: GPU worker, IPC и управление заданиями; только после разрешения.
+
+<details>
+<summary>История шага 07</summary>
+
+# Состояние проекта
+
 Дата: 2026-10-12.
 
 ## Текущий шаг
@@ -859,6 +945,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

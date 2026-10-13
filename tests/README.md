@@ -120,3 +120,25 @@ LOCAL_TRANSCRIBER_FFMPEG_PATH; fixture использует stream_index=1 и 60
 Без fixture соответствующий тест явно SKIP; ONNX-silence всегда выполняется.
 Для Windows Temp permission error используйте новый уникальный каталог tmp/
 и PYTEST_DEBUG_TEMPROOT. Модель/видео/текст в Git не добавляются.
+
+## Pipeline, шаг 08
+
+`test_pipeline.py` — небольшой suite на test doubles: 25-min logical stream,
+crash после двух chunks, BaseException, resume/repeat, manifest mismatch,
+time/text dedup с настоящим повтором, explicit CLI routing и decode range limit.
+Это проверки оркестрации, не имитация успешного CUDA inference.
+`test_postgresql.py::test_pipeline_checkpoints_and_resume` проверяет реальные
+checkpoints на отдельной test DB. `test_pipeline_real_hour` — opt-in gate с
+LOCAL_TRANSCRIBER_PIPELINE_SMOKE (локальный приватный файл >=60 min, >1 GB,
+stream index 1), установленными offline моделью/FFmpeg и отдельной PostgreSQL.
+
+Изолированный runner теперь поддерживает повторяемый --pytest-target:
+
+```powershell
+uv run python scripts/check_postgresql.py --pytest-target tests/test_pipeline.py --pytest-target tests/test_postgresql.py::test_pipeline_checkpoints_and_resume
+```
+
+Без --pytest-target сохранён прежний полный режим. В runner зафиксирован UTF-8
+вывод, чтобы Windows cp1251 не прерывал отчёт с Unicode из pytest.
+Секреты и пользовательский транскрипт не выводятся. Temp cluster принадлежит
+runner, пользовательская БД/служба не меняются.

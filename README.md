@@ -10,8 +10,7 @@
 ## Текущее состояние
 
 Пакет поддерживает запуск, справку, версию, doctor, `inspect` и `import` медиа.
-Настройки читаются из локального окружения или пользовательского .env. Сквозной
-pipeline, GUI, GPU worker и экспорт пока не реализованы. PostgreSQL-схема, Alembic и
+Настройки читаются из локального окружения или пользовательского .env. GUI, GPU worker и экспорт пока не реализованы. PostgreSQL-схема, Alembic и
 транзакционные репозитории реализованы отдельно; подключения берут AppSettings.
 
 Инспекция поддерживает MKV/MP4/MOV/WAV/MP3/M4A/FLAC/WebM, запускает локальный
@@ -20,7 +19,7 @@ ffprobe и выводит JSON с длительностью, размером, 
 Выбранная реальным `stream_index` дорожка декодируется локальным FFmpeg в
 ограниченные блоки PCM s16le mono 16 kHz. Декодер поддерживает абсолютные
 integer-ms интервалы до 15 минут, стартовый PTS, отмену и тайм-аут; полного WAV
-или исходного файла в памяти нет. Оркестрация полной транскрибации и GUI ещё не реализованы.
+или исходного файла в памяти нет. GUI ещё не реализован.
 STT-контракт и offline-first адаптер faster-whisper реализованы: модель лениво
 загружается один раз, по умолчанию `large-v3-turbo`, `ru`, beam 5, float16 с
 явным fallback `int8_float16`. Автоматическая загрузка модели выключена.
@@ -329,4 +328,28 @@ uv run alembic -x env_file='C:/Users/USER/AppData/Local/LocalTranscriber/.env' u
 короткие ответы сохраняются, непрерывная речь делится на 30-секундные core
 intervals с контекстом. Настройка LOCAL_TRANSCRIBER_VAD_ENABLED=false включает
 bypass. Модель уже входит в faster-whisper; дополнительных загрузок нет.
-Pipeline, сохранение VAD/STT-результатов и дедупликация текста — следующие этапы.
+Конвейер и PostgreSQL-чекпойнты реализованы в шаге 08.
+
+## Транскрибация и возобновление
+
+После настройки локальной PostgreSQL, миграций и локальной модели:
+
+```powershell
+uv run local-transcriber transcribe 'C:/Users/USER/Videos/recording.mkv' --stream-index 1
+# Несколько независимых дорожек: --stream-index 1 --stream-index 2
+# Возобновить UUID из результата/ошибки CLI с теми же параметрами:
+uv run local-transcriber transcribe 'C:/Users/USER/Videos/recording.mkv' --stream-index 1 --resume JOB_UUID
+```
+
+CLI последовательно обрабатывает logical chunks по 5 минут с контекстом по 1000 ms,
+запускает VAD и offline STT с word timestamps. Сегменты в исходных ms и COMPLETED
+чекпойнт сохраняются одной PostgreSQL-транзакцией. `--chunk-ms` задаёт 1–15 минут,
+`--overlap-ms` — 200–5000 ms (не меньше VAD pause+padding); `--end-ms` ограничивает
+обработку начальным диапазоном для локальной проверки. Общая длина файла не ограничена.
+
+`--resume` пропускает готовые chunks и отклоняет изменения fingerprint, выбранных
+дорожек, модели, VAD и параметров участков. Завершённый job возвращается без повторного
+STT. Запуск без --resume создаёт отдельное задание. Сохранённые RAW не перезаписываются.
+CLI выводит JSON progress/job_id без транскрипта; ошибки с job_id записываются в
+пользовательский logs/pipeline-errors.log. Исходник и PCM в PostgreSQL не хранятся.
+Процесс пока синхронный; worker, pause/cancel/FIFO и IPC относятся к шагу 09.

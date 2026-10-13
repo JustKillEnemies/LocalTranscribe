@@ -132,3 +132,13 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | FR-04/FR-03: короткая/длинная речь, границы, source ms | [speech.py](../src/local_transcriber/domain/speech.py), [segmentation.py](../src/local_transcriber/application/segmentation.py), [test_segmentation.py](../tests/test_segmentation.py) | 96 ms речь сохранена, 65 s split в 3 core, multiple pauses, partial EOF и block fragmentation не теряют samples. |
 | NFR-02/NFR-03: bounded buffer, safe errors | [test_segmentation.py](../tests/test_segmentation.py) | Buffer limit; missing model, NaN probability, gap/replay диагностируются. Source stat неизменен в ручной интеграции. |
 | TZ-TESTS: real Russian fixture | [test_segmentation.py](../tests/test_segmentation.py) | Env-selected приватный 45 s fixture, 10 участков, source-ms ownership без пересечений; данные не входят в Git. Дедупликация текста pipeline — 08. |
+
+## Артефакты и проверки шага 08
+
+| Требование | Артефакт | Проверка |
+| --- | --- | --- |
+| FR-06: decode/VAD/STT/persist, logical chunks, bounded RAM | [pipeline.py](../src/local_transcriber/application/pipeline.py), [transcribe_cli.py](../src/local_transcriber/infrastructure/transcribe_cli.py) | 25-min synthetic pipeline; 5-min default/1–15 configurable; bounded FFmpeg/VAD; реальные первые 60 min видео >4 GB. |
+| FR-06: absolute times, overlap/dedup | [pipeline.py](../src/local_transcriber/application/pipeline.py), [test_pipeline.py](../tests/test_pipeline.py) | Word midpoint ownership и time/text evidence; fake genuine repetition сохраняется; source-ms в реальной PG. |
+| FR-07: atomic checkpoint/resume, fingerprint/model validation | [pipeline_store.py](../src/local_transcriber/infrastructure/database/pipeline_store.py), [test_postgresql.py](../tests/test_postgresql.py) | Crash после двух checkpoints; remaining-only resume; repeat no-op; изменённый manifest блокирует resume; реальная PG и прежний atomic repository. |
+| NFR-03: safe failures и resource cleanup | [test_pipeline.py](../tests/test_pipeline.py), [test_transcription.py](../tests/test_transcription.py) | RuntimeError/BaseException, source/params mismatch, decoder finally-close; zero-duration word regression. |
+| TZ-CLI: transcribe и журнал по job_id | [__main__.py](../src/local_transcriber/__main__.py), [transcribe_cli.py](../src/local_transcriber/infrastructure/transcribe_cli.py) | Existing launchers/CLI сохраняются; --stream-index/--resume, JSON progress, пользовательский error log. |

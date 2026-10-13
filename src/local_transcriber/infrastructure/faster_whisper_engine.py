@@ -176,7 +176,14 @@ class FasterWhisperEngine:
         for word in getattr(item, "words", None) or ():
             start_ms = max(0, round(float(word.start) * 1000))
             end_ms = min(duration_ms, round(float(word.end) * 1000))
-            if end_ms <= start_ms:
+            if float(word.end) < float(word.start):
+                raise TranscriptionError("Движок вернул некорректные таймкоды слова.")
+            if end_ms == start_ms and 0 <= start_ms <= duration_ms:
+                # Whisper alignment can assign zero duration to a real word/punctuation.
+                # Preserve its text and give it one millisecond inside the submitted audio.
+                start_ms = min(start_ms, duration_ms - 1)
+                end_ms = start_ms + 1
+            if end_ms < start_ms:
                 raise TranscriptionError("Движок вернул некорректные таймкоды слова.")
             probability = getattr(word, "probability", None)
             words.append(

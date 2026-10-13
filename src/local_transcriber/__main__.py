@@ -6,6 +6,7 @@ import sys
 from collections.abc import Sequence
 from importlib.metadata import version
 from pathlib import Path
+from uuid import UUID
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -14,8 +15,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="local-transcriber",
         description="LocalTranscriber — локальное приложение для транскрибации OBS-записей.",
         epilog=(
-            "Доступны диагностика, инспекция и импорт метаданных медиа. "
-            "Транскрибация и графический интерфейс появятся на следующих этапах."
+            "Доступны диагностика, импорт и локальная транскрибация с чекпойнтами. "
+            "Графический интерфейс появится на следующих этапах."
         ),
         allow_abbrev=False,
         color=False,
@@ -45,7 +46,46 @@ def main(argv: Sequence[str] | None = None) -> int:
         command = commands.add_parser(name, help=help_text, color=False)
         command.add_argument("path", type=Path, help="локальный путь к медиафайлу")
         command.add_argument("--env-file", type=Path, help="явный путь к локальному .env")
+    transcribe = commands.add_parser(
+        "transcribe", help="локально распознать выбранные дорожки", color=False
+    )
+    transcribe.add_argument("path", type=Path)
+    transcribe.add_argument("--stream-index", type=int, action="append", required=True)
+    transcribe.add_argument("--env-file", type=Path)
+    transcribe.add_argument("--resume", type=UUID, help="UUID ранее созданного задания")
+    transcribe.add_argument("--chunk-ms", type=int, default=300_000)
+    transcribe.add_argument("--overlap-ms", type=int, default=1000)
+    transcribe.add_argument(
+        "--end-ms", type=int, help="конец обрабатываемого диапазона от начала файла"
+    )
     arguments = parser.parse_args(argv)
+    if arguments.command == "transcribe":
+        from local_transcriber.application.pipeline import PipelineError
+        from local_transcriber.infrastructure.database.session import PersistenceError
+        from local_transcriber.infrastructure.media import MediaInspectionError
+        from local_transcriber.infrastructure.settings import ConfigurationError
+        from local_transcriber.infrastructure.transcribe_cli import run_transcription
+
+        try:
+            run_transcription(
+                arguments.path,
+                indices=tuple(arguments.stream_index),
+                env_file=arguments.env_file,
+                resume=arguments.resume,
+                chunk_ms=arguments.chunk_ms,
+                overlap_ms=arguments.overlap_ms,
+                end_ms=arguments.end_ms,
+            )
+            return 0
+        except PersistenceError as error:
+            print(f"Ошибка PostgreSQL: {error}", file=sys.stderr)
+            return 3
+        except (PipelineError, ConfigurationError, MediaInspectionError, ValueError) as error:
+            print(f"Ошибка: {error}", file=sys.stderr)
+            return 2
+        except OSError:
+            print("Ошибка: локальный файл или каталог недоступен.", file=sys.stderr)
+            return 2
     if arguments.command == "doctor":
         from local_transcriber.infrastructure.doctor import run_doctor
         from local_transcriber.infrastructure.settings import ConfigurationError, load_settings

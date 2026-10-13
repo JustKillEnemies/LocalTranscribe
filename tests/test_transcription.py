@@ -133,6 +133,22 @@ def test_optional_word_timestamps_are_mapped(tmp_path: Path) -> None:
     assert segment.words == (TranscriptionWord(120, 500, " слово", 0.9),)
 
 
+def test_zero_duration_word_alignment_keeps_text_inside_audio(tmp_path: Path) -> None:
+    source = SimpleNamespace(
+        start=0.0,
+        end=1.0,
+        text="слово",
+        words=[SimpleNamespace(start=1.0, end=1.0, word="слово", probability=0.9)],
+    )
+    engine = FasterWhisperEngine(
+        local_config(tmp_path, word_timestamps=True),
+        model_factory=lambda *_args, **_kwargs: FakeModel({}, [source]),
+    )
+    assert engine.transcribe(PCM_ONE_SECOND)[0].words == (
+        TranscriptionWord(999, 1000, "слово", 0.9),
+    )
+
+
 def test_missing_local_model_never_calls_factory_or_downloads(tmp_path: Path) -> None:
     called = False
 

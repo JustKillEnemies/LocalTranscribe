@@ -155,3 +155,13 @@
 | ADR-053 | threshold 0.5, hysteresis threshold−0.15, pause 500 ms, padding 200 ms, core limit 30 s. Короткая речь не отбрасывается. | Сохраняет атаки/окончания речи и короткие ответы; EOF сохраняет последний неполный frame. |
 | ADR-054 | SpeechChunk содержит padded PCM и непересекающийся half-open core interval. | Split длинной речи получает контекст с обеих сторон; pipeline шага 08 обязан владеть результатом по core (например по середине word timestamp), чтобы overlap не порождал повторный текст. |
 | ADR-055 | Вход segment — непрерывный поток AudioBlock; reset на рабочей границе не допускается, разрыв/replay вызывает безопасную ошибку. | Сегментатор не знает будущих job/checkpoint; шаг 08 передаёт ему непрерывные блоки или явный контекст окна. |
+
+## Конвейер, ШАГ 08 — 2026-10-13
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-056 | Один atomic checkpoint на logical chunk (default 5 min); VAD/STT внутри него обрабатываются последовательно, RAW+COMPLETED сохраняются существующим ChunkRepository. | Crash теряет только незавершённый участок, подтверждённые сегменты не перезаписываются; очередь PCM и VAD buffer ограничены. |
+| ADR-057 | Logical windows с overlap=1000 ms и source-ms word ownership; no global concatenation. | Окна имеют контекст для VAD и слов на границах; midpoint ownership и time/text dedup сохраняют реальные раздельные повторения. |
+| ADR-058 | Explicit --resume UUID; fingerprint и immutable parameter manifest обязаны совпасть, COMPLETED — no-op. | Новая модель/VAD/границы не смешиваются с сохранённым RAW. Без --resume создаётся отдельная задача. |
+| ADR-059 | Нулевой word alignment Whisper нормализуется в 1 ms внутри аудио; обратные таймкоды отклоняются. | На реальном 60-min прогоне встречались нулевые durations; текст нельзя терять из-за погрешности alignment. Регрессионный тест сохраняет слово при EOF. |
+| ADR-060 | CLI синхронный; worker/FIFO/pause/cancel/recovery остаются шагом 09. | Границы текущего шага: sequential pipeline и durable resume, без преждевременного IPC/GUI. |

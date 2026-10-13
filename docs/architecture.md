@@ -323,3 +323,39 @@ Bypass отключает загрузку/inference VAD и сохраняет �
 с теми же ограничениями длины и ownership. VAD не определяет личность говорящего
 и не гарантирует распознавание каждой тихой реплики; параметры можно менять.
 Один segment-вызов должен охватывать непрерывную шкалу, а не каждое окно отдельно.
+
+## Конвейер и чекпойнты (шаг 08)
+
+`application.pipeline.TranscriptionPipeline` зависит от MediaDecoder,
+SpeechSegmenter, TranscriptionEngine и PipelineStore ports. CLI composition root
+`infrastructure.transcribe_cli` создаёт адаптеры из AppSettings. PipelineStore
+реализован PostgreSQLPipelineStore, который использует существующие Media/Job/
+ChunkRepository и их транзакции. Новых таблиц и миграций не требуется.
+
+Порядок: validate fingerprint/manifest → job → выбранные streams → план logical
+chunks → decode расширенного окна → VAD → STT → ownership/dedup → atomic save.
+Logical core по умолчанию 5 min, контекст 1 s с каждой стороны. VAD сохраняет
+состояние внутри расширенного окна; между logical chunks оно пересоздаётся с
+lookbehind/lookahead. CLI требует overlap >= VAD min_silence+padding. Даже logical
+chunk 15 min+контекст decode разбивается на поддиапазоны <=15 min и передаётся
+VAD непрерывным iterator. FFmpeg queue остаётся фиксированной; PCM всех chunks
+не накапливается. Только текущий logical chunk хранит небольшой список результатов.
+
+CLI включает word timestamps. Относительное время слова смещается на start_ms
+SpeechChunk. Полуоткрытые logical/core intervals владеют словом по середине его
+таймкода; context words вне ownership не записываются. Перед сохранением границы
+обрезаются к logical core. Соседние совпадения удаляются только при временном
+пересечении >=50% меньшего интервала и нормализованном text similarity >=0.92.
+Раздельные во времени повторения сохраняются; алгоритм не удаляет слова-паразиты.
+Сегменты без word timestamps используют midpoint целого сегмента и менее точны
+на границах; production CLI всегда запрашивает слова.
+
+ChunkRepository одной транзакцией сохраняет сегменты, COMPLETED и job counters.
+При ошибке текущий chunk/job помечаются FAILED, прежние результаты остаются.
+При hard stop статус может остаться PROCESSING; explicit --resume проверяет
+manifest и обрабатывает только неготовые chunks, включая последний незавершённый.
+Автоматическое обнаружение INTERRUPTED и управление worker — шаг 09.
+Resume связывает fingerprint, duration, selected indices, engine config, VAD,
+chunk/overlap/end, версии runtime и идентичность локальных model files. Ошибки
+журналируются с job_id/stream/chunk без сырого текста и credentials.
+Одновременные CLI-писатели одного job на этом этапе не поддерживаются.

@@ -10,15 +10,18 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--postgres-bin", type=Path, default=Path("C:/Program Files/PostgreSQL/18/bin")
     )
+    parser.add_argument("--pytest-target", action="append", help="Run only selected pytest targets")
     args = parser.parse_args()
     binaries = args.postgres_bin.resolve()
     required = ("initdb.exe", "pg_ctl.exe", "createdb.exe", "psql.exe", "postgres.exe")
@@ -36,6 +39,7 @@ def main() -> int:
         port = listener.getsockname()[1]
     environment = os.environ.copy()
     environment.update(
+        PYTHONUTF8="1",
         LOCAL_TRANSCRIBER_POSTGRES_HOST="127.0.0.1",
         LOCAL_TRANSCRIBER_POSTGRES_PORT=str(port),
         LOCAL_TRANSCRIBER_POSTGRES_USER="localtranscriber_test",
@@ -154,9 +158,13 @@ def main() -> int:
         )
         uv = root / ".venv/Scripts/uv.exe"
         run([uv, "run", "python", "--version"], "python --version")
-        run([uv, "run", "pytest", "-q"], "uv run pytest -q")
-        run([uv, "run", "pytest", "tests/test_database_unit.py", "-q"], "database unit tests")
-        run([uv, "run", "pytest", "tests/test_postgresql.py", "-q"], "PostgreSQL integration tests")
+        run([uv, "run", "pytest", "-q", *(args.pytest_target or [])], "uv run pytest -q")
+        if not args.pytest_target:
+            run([uv, "run", "pytest", "tests/test_database_unit.py", "-q"], "database unit tests")
+            run(
+                [uv, "run", "pytest", "tests/test_postgresql.py", "-q"],
+                "PostgreSQL integration tests",
+            )
         for operation in (
             ("upgrade", "head"),
             ("upgrade", "head"),
