@@ -171,3 +171,20 @@ CRUD/upsert словаря и CLI с CRLF ручным файлом. Связь 
 сама PostgreSQL и SQL-операции — реальные. Тесты вызываются выборочно через
 `scripts/check_postgresql.py --pytest-target ...`; полные GPU/stress gates не нужны
 для изменения чистых правил текста и выполняются на своих этапах.
+
+## Экспорт, шаг 11
+
+`test_export.py` — 16 focused cases: четыре независимых synthetic golden файла,
+Unicode/пересечение/пустые cues/часовые времена, TXT roles/legacy v1/manual,
+atomic collision/race/overwrite, cancellation и Ctrl+C, диск/permissions,
+реальный Windows read-only, source protection и настоящий ffprobe SRT parser.
+Golden-файлы имеют суффикс .golden (исключённый .srt не используется), LF
+закреплён .gitattributes. Это выдуманные fixtures, пользовательских транскриптов нет.
+
+`test_postgresql.py::test_export_after_restart_without_gpu_and_without_database_changes`
+выгружает все четыре формата в свежих отдельных Python processes, используя
+настоящую test DB/schema; модель/GPU/FFmpeg/исходник не нужны. Проверяется отсутствие
+heavy imports и записей в БД. `test_export_failures_keep_versions_and_original_media`
+проверяет foreign/missing version/RAW/job и защиту исходного файла в реальной DB.
+Обычный runner `check_postgresql.py --pytest-target ...` запускает только эти
+проверки вместе с нужными text/CLI unit regression, без повторного GPU/stress.

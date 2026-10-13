@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "media": {
+    "filename": "OBS запись.mkv",
+    "file_path": "missing-source.mkv",
+    "duration_ms": 3610000
+  },
+  "job": {
+    "id": "00000000-0000-0000-0000-000000000064",
+    "model_name": "large-v3-turbo",
+    "language": "ru",
+    "parameters": {}
+  },
+  "model": {
+    "name": "large-v3-turbo",
+    "language": "ru",
+    "parameters": {}
+  },
+  "selected_streams": [
+    {
+      "stream_index": 0,
+      "role_label": "Микрофон"
+    },
+    {
+      "stream_index": 1,
+      "role_label": "Система"
+    }
+  ],
+  "version": {
+    "id": "00000000-0000-0000-0000-00000000000b",
+    "number": 2,
+    "kind": "READABLE",
+    "processing_metadata": {
+      "rules_version": "1"
+    }
+  },
+  "text": {
+    "raw": " Привет, мир! 42,5\n\nEnglish PostgreSQL",
+    "readable": "[Дорожка 0] Микрофон: Привет, мир!\n\n[Дорожка 0] Микрофон: 42,5.\n\n[Дорожка 1] Система: English PostgreSQL.",
+    "selected": "[Дорожка 0] Микрофон: Привет, мир!\n\n[Дорожка 0] Микрофон: 42,5.\n\n[Дорожка 1] Система: English PostgreSQL."
+  },
+  "segments": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "stream_index": 0,
+      "start_ms": 3600001,
+      "end_ms": 3602500,
+      "raw_text": " Привет, мир!",
+      "speaker_label": "Микрофон"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "stream_index": 1,
+      "start_ms": 3600100,
+      "end_ms": 3601800,
+      "raw_text": "English PostgreSQL",
+      "speaker_label": "Система"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "stream_index": 0,
+      "start_ms": 3605000,
+      "end_ms": 3606000,
+      "raw_text": " 42,5",
+      "speaker_label": "Микрофон"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "stream_index": 1,
+      "start_ms": 3606100,
+      "end_ms": 3606200,
+      "raw_text": "",
+      "speaker_label": null
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 Это целевая архитектура. Текущий пакет реализует справку, версию, единый запуск,
 настройки и диагностику среды, правила состояний Domain, PostgreSQL-схему и
-транзакционные репозитории Infrastructure. Медиа, STT/VAD, pipeline/worker и текстовые сценарии описаны ниже; GUI и экспорт запланированы. Решения связаны с
+транзакционные репозитории Infrastructure. Медиа, STT/VAD, pipeline/worker и текстовые сценарии описаны ниже; GUI запланирован, экспорт описан ниже. Решения связаны с
 [требованиями](requirements.md) и [журналом решений](decisions.md).
 Порядок реализации — [implementation_plan.md](implementation_plan.md);
 актуальные статусы находятся только в [progress.md](progress.md).
@@ -447,3 +447,43 @@ CLI transcribe после JOB_COMPLETED вызывает текстовые сц
 процессе и публикует TEXT_COMPLETED. При ошибке текста STT остаётся COMPLETED,
 его segments/RAW не удаляются; `text readable` позволяет повторить без STT.
 Сценарии можно вызывать будущим GUI вне event loop. GUI/экспорт не входят в шаг 10.
+
+## Экспорт (границы шага 11)
+
+`application.export.ExportService` использует ExportSource/ExportWriter порты и
+чистые форматтеры; не зависит от SQLAlchemy, GPU, FFmpeg или GUI. Concrete
+`database.export_store.PostgreSQLExportSource` читает repeatable-read snapshot:
+метаданные, последний RAW/READABLE/MANUAL, явную выбранную версию, потоки из
+processing_chunks и исходные сегменты. Выбираются только нужные версии, не вся
+история. Source digest сверяется с RAW; экспорт не имеет записей в БД.
+
+При отсутствии явного UUID TXT/Markdown/JSON предпочитают MANUAL, затем READABLE,
+затем RAW; SRT — RAW. JSON v1 содержит media/job/model/selected_streams/version,
+raw/readable/selected text и chronological segments. TXT/Markdown — выбранный текст
+и optional timestamp/role; SRT — нумерация, absolute ms, стабильный chronological
+order с сохранением overlap. Empty cue пропускается, время >1 h/24 h не обнуляется.
+
+Для READABLE conservative-text v1 сохраняет paragraph map (text, stream_index,
+start/end ms, speaker_label) в processing_metadata; содержимое/версия правил не
+менялись. Legacy v1 без map восстанавливается детерминированно по своим сохранённым
+rules/dictionary/segments с обязательным точным совпадением текста и digest.
+Экспорт не использует текущий словарь и не создаёт новую READABLE. Неизвестная или
+повреждённая версия отвергается. У MANUAL нет alignment: разрешены plain TXT/MD/JSON,
+SRT/аннотированный текст отвергается, автоматического привязывания правок нет.
+
+`infrastructure.export_files.AtomicExportWriter` пишет UTF-8 в temp в том же
+каталоге, flush/fsync и закрывает дескриптор до публикации (важно для Windows).
+Без overwrite Windows os.rename атомарно отказывает при существующем имени;
+POSIX использует exclusive os.link + удаление собственного temp. При подтверждённом
+overwrite используется os.replace. Preflight не заменяет защиту от гонки имён.
+Cancellation проверяется до загрузки/по фрагментам/после fsync/до publish, finally
+чистит только собственный temp. Успешный publish — граница завершения экспорта.
+Это гарантии атомарной видимости файла на подходящей локальной FS, не обещание
+сохранения каталогов после отключения питания/произвольного сетевого диска.
+
+Service запрещает destination, совпадающий с источником по resolved path/samefile,
+даже с overwrite. Writer проверяет reserved Windows filenames, directory, collisions
+и ошибки доступа/диска. Не создаёт пользовательские каталоги автоматически.
+`export_cli` только связывает AppSettings/PostgreSQL/Service/Writer; импорты и
+сценарий экспорта не загружают движок/модель. Фрагменты файлов/JSON пишутся постепенно;
+текстовый snapshot/segments материализуются как в шаге 10, медиа/PCM не читаются.

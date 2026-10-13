@@ -966,3 +966,113 @@ def test_text_cli_real_database_versions_and_manual_file(
     capsys.readouterr()
     assert main(["text", "show", str(jobs[0]), "--version", str(uuid4())]) == 2
     assert "does not belong" in capsys.readouterr().err
+
+
+def test_export_after_restart_without_gpu_and_without_database_changes(postgres, tmp_path) -> None:
+    import json
+    import sys
+
+    from local_transcriber.application.transcript import TranscriptService
+    from local_transcriber.infrastructure.database.text_store import (
+        PostgreSQLTranscriptStore,
+        TermRepository,
+    )
+
+    engine, factory, config = postgres
+    jobs, streams = _completed_text_job(factory)
+    service = TranscriptService(PostgreSQLTranscriptStore(factory), TermRepository(factory))
+    readable = service.readable(jobs[0])
+    manual = service.manual(jobs[0], readable.id, "Ручная редакция: 42,5\r\n")
+    with transaction(factory) as session:
+        before = session.scalar(select(func.count()).select_from(TranscriptVersion))
+        media = session.get(MediaFile, session.get(TranscriptionJob, jobs[0]).media_file_id)
+        media.file_path = str(tmp_path / "Исходник недоступен.mkv")
+    # Fresh interpreter after the previous application stopped: only persisted DB state exists.
+    # Redirect production composition to this fixture's real separate PostgreSQL/schema.
+    bootstrap = (
+        "import sys; from local_transcriber.infrastructure.database import session as db; "
+        "schema=sys.argv[1]; original=db.make_engine; "
+        "db.make_engine=lambda settings: original(settings,test=True,test_schema=schema); "
+        "from local_transcriber.__main__ import main; result=main(sys.argv[2:]); "
+        "assert not any(n in sys.modules for n in ('ctranslate2','faster_whisper','onnxruntime','PySide6')); "
+        "raise SystemExit(result)"
+    )
+    paths = {}
+    for extension in ("txt", "srt", "json", "md"):
+        destination = tmp_path / ("Выгрузка с пробелами." + extension.upper())
+        paths[extension] = destination
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-X",
+                "utf8",
+                "-c",
+                bootstrap,
+                config.attributes["test_schema"],
+                "export",
+                str(jobs[0]),
+                str(destination),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=20,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["exported"] == str(destination)
+    assert paths["txt"].read_bytes().decode("utf-8") == manual.content
+    assert "я я" in paths["srt"].read_text(encoding="utf-8")
+    data = json.loads(paths["json"].read_text(encoding="utf-8"))
+    assert data["version"]["kind"] == "MANUAL"
+    assert data["text"]["selected"] == manual.content
+    assert data["text"]["readable"] == readable.content
+    assert data["model"]["name"] == "medium"
+    assert [stream["stream_index"] for stream in data["selected_streams"]] == [0, 1]
+    assert len(data["segments"]) == 3
+    assert "Ручная редакция" in paths["md"].read_text(encoding="utf-8")
+    with transaction(factory) as session:
+        assert session.scalar(select(func.count()).select_from(TranscriptVersion)) == before
+    assert service.versions(jobs[0])[-1] == manual
+
+
+def test_export_failures_keep_versions_and_original_media(postgres, tmp_path) -> None:
+    from local_transcriber.application.export import (
+        ExportError,
+        ExportFormat,
+        ExportOptions,
+        ExportService,
+    )
+    from local_transcriber.application.transcript import TranscriptService
+    from local_transcriber.infrastructure.database.export_store import PostgreSQLExportSource
+    from local_transcriber.infrastructure.database.text_store import (
+        PostgreSQLTranscriptStore,
+        TermRepository,
+    )
+    from local_transcriber.infrastructure.export_files import AtomicExportWriter
+
+    engine, factory, config = postgres
+    jobs, streams = _completed_text_job(factory)
+    text_service = TranscriptService(PostgreSQLTranscriptStore(factory), TermRepository(factory))
+    text_service.readable(jobs[0])
+    original = tmp_path / "Исходная запись.mkv"
+    original.write_bytes(b"synthetic source sentinel")
+    with transaction(factory) as session:
+        job = session.get(TranscriptionJob, jobs[0])
+        session.get(MediaFile, job.media_file_id).file_path = str(original)
+    source = PostgreSQLExportSource(factory)
+    saved = text_service.versions(jobs[0])
+    with pytest.raises(ExportError, match="не принадлежит"):
+        source.load(jobs[0], uuid4())
+    with pytest.raises(ExportError, match="RAW отсутствует"):
+        source.load(jobs[1])
+    with pytest.raises(ExportError, match="не найдено"):
+        source.load(uuid4())
+    with pytest.raises(ExportError, match="Исходный"):
+        ExportService(source, AtomicExportWriter()).export(
+            jobs[0], original, ExportOptions(ExportFormat.TXT, overwrite=True)
+        )
+    assert original.read_bytes() == b"synthetic source sentinel"
+    assert text_service.versions(jobs[0]) == saved

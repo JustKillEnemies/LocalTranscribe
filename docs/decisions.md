@@ -186,3 +186,13 @@
 | ADR-069 | conservative-text v1: только оформление, абзацы/конечная точка и явно заданный словарь; повторы/стоп-слова сохранять. | MVP не угадывает смысл, не вставляет факты и не требует LLM; параметры и снимок словаря делают обработку воспроизводимой. |
 | ADR-070 | Longest-first whole-word single-pass замены, неоднозначный вариант пропускать; импорт UTF-8 canonical<TAB>variant\|variant атомарным upsert. | Нет каскадных замен/подстановки части слова; повреждённый импорт не оставляет частичных обновлений. |
 | ADR-071 | Текстовые сценарии вызываются CLI после подтверждённого STT; ошибка текста не отменяет COMPLETED STT. | RAW checkpoints уже зафиксированы; текст можно повторить без распознавания командой text readable. |
+
+## Экспорт, ШАГ 11 — 2026-10-13
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-072 | ExportService через read-only ExportSource и ExportWriter; repeatable-read PostgreSQL snapshot, только нужные версии. | Экспорт после перезапуска без источника/GPU и без изменения истории, consistent metadata/segments. |
+| ADR-073 | SRT default RAW, stable start_ms/stream_index/source order, сохранять overlap и integer ms; TXT/MD/JSON default MANUAL→READABLE→RAW. | Нет выдуманных времён для ручных правок; готовый MANUAL не теряется из-за более позднего READABLE. |
+| ADR-074 | Paragraph alignment в READABLE metadata; старый conservative-text v1 восстанавливается из сохранённых rules/dictionary только при точном совпадении текста/digest. | Таймкоды/optional roles не требуют нового STT или изменения старых версий; unaligned MANUAL нельзя выдавать за timed transcript. |
+| ADR-075 | Temp в destination.parent + flush/fsync + exclusive rename/link; os.replace только при overwrite. | Гонки имён не затирают чужой файл; cancellation/ошибки сохраняют прежний результат и чистят собственный temp. |
+| ADR-076 | UTF-8 без BOM, format LF; synthetic golden fixtures закреплены .gitattributes eol=lf. | Byte-exact тесты форматов воспроизводимы после Windows checkout с autocrlf. |

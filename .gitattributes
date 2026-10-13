@@ -1,0 +1,2 @@
+# Synthetic UTF-8 export golden fixtures must retain byte-exact LF on Windows.
+tests/fixtures/export/*.golden text eol=lf whitespace=-blank-at-eof

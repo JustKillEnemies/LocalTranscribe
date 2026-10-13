@@ -4,6 +4,113 @@
 
 ## Текущий шаг
 
+ШАГ 11 — экспорт TXT, SRT, JSON и Markdown. **READY FOR STEP 12**.
+Python 3.14.4, существующая .venv. ШАГ 12 не начат.
+До начала шага 11 по прямому разрешению владельца закоммичен/запушен ШАГ 10:
+`669de2e`, origin/main. Изменения шага 11 не коммитились и не пушились.
+
+## Реализовано
+
+- ExportService с ExportSource/ExportWriter ports; только сохранённые DB данные,
+  без STT/модели/GPU/исходного медиафайла. Read-only repeatable-read snapshot.
+- UTF-8 TXT с/без времени и ролей, SRT со стабильными индексами/таймкодами,
+  JSON v1 с записью/моделью/потоками/versions/segments, Markdown.
+- Integer absolute ms, HH:MM:SS,mmm, >1h/>24h, overlap сохраняется; пустые cues
+  пропускаются, новые слова/таймкоды не придумываются.
+- Выбор версии по UUID; TXT/MD/JSON default MANUAL→READABLE→RAW, SRT default RAW.
+- READABLE сохраняет paragraph alignment в metadata; для старого v1 восстанавливается
+  оформление из его сохранённых rules/dictionary с exact content/digest check.
+  Содержимое прежних версий и правила conservative-text v1 не изменялись.
+- MANUAL без привязки: обычный TXT/MD/JSON, с точным CRLF; timed TXT/SRT/role annotation
+  отклоняются явно, исходные времена не присваиваются ручным правкам автоматически.
+- Temp рядом с destination + flush/fsync/close + atomic rename. Без overwrite
+  коллизия/гонка имён не перезаписывает чужой файл; --overwrite даёт явное разрешение.
+- Cancel event/Ctrl+C до публикации чистит только свой temp; ошибки permissions,
+  read-only, disk full/parent/reserved Windows name сохраняют прежний файл.
+- Destination, совпадающий с исходным медиа по resolved path/samefile, запрещён.
+- CLI export, расширение/--format, --version/--timestamps/--roles/--overwrite/--env-file;
+  существующие точки входа сохранены. Новых зависимостей/миграций нет.
+- Четыре synthetic golden fixture; .gitattributes закрепляет LF для Windows checkout.
+- README/architecture/ADR-072–076/traceability/tests README обновлены.
+
+Новые файлы: application/export.py, infrastructure/database/export_store.py,
+infrastructure/export_files.py, infrastructure/export_cli.py, tests/test_export.py,
+tests/fixtures/export/expected.{txt,srt,json,md}.golden, .gitattributes.
+Изменены: __main__.py, domain/text.py, tests/test_postgresql.py, tests/README.md,
+README.md, docs/architecture.md, docs/decisions.md, docs/requirements_traceability.md
+и этот документ. Python paths относительно src/local_transcriber/.
+
+## Проверки
+
+Изолированный runner использовал PostgreSQL 18.3: отдельная local_transcriber_test,
+случайный loopback port и random schema на тест. Рабочая БД/служба не менялись,
+собственный кластер остановлен; реальное подключение подтверждено.
+
+Фактическая команда из корня:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_postgresql.py --pytest-target tests/test_export.py --pytest-target tests/test_text.py --pytest-target tests/test_cli.py --pytest-target tests/test_postgresql.py::test_export_after_restart_without_gpu_and_without_database_changes --pytest-target tests/test_postgresql.py::test_export_failures_keep_versions_and_original_media
+```
+
+| Проверка / фактическая команда | Статус | Результат |
+| --- | --- | --- |
+| uv run python --version (runner .venv) | PASS | Python 3.14.4. |
+| uv run pytest -q (targets выше, runner) | PASS | 60 passed in 10.50s, без SKIP. |
+| Export suite | PASS | 16 cases: 4 golden, time/overlap/empty/manual/legacy, атомарные файлы/гонка/отмена/ошибки, source guard и real ffprobe. |
+| Text/CLI unit regression | PASS | 14 text cases + 28 прежних CLI cases; текст/точки входа не сломаны. |
+| Real PostgreSQL export integration | PASS | 2 tests: TXT/SRT/JSON/MD в четырёх fresh Python processes; heavy imports отсутствуют; версии/данные не меняются; source/foreign/missing errors. |
+| Real ffprobe -f srt -show_packets -of json | PASS | 3 cues, первая отметка 3600.001000 s, UTF-8/overlap корректно разобраны. |
+| Windows filesystem | PASS | Unicode/spaces, read-only destination, Ctrl+C/temp cleanup, missing parent, CON.txt; old bytes preserved. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS | 0003_audio_timeline (head), No new upgrade operations detected. |
+| uv run ruff check . | PASS | All checks passed. |
+| uv run ruff format --check . | PASS | 73 files already formatted. |
+| git diff --check | PASS | Whitespace ошибок нет. |
+| git check-attr text eol для четырёх golden | PASS | text=set, eol=lf. |
+| Полный regression/GPU/long stress | NOT RUN | Целевой набор по просьбе владельца; экспорт не требует повторного STT/GPU. |
+| Ручная визуальная проверка в плеере / GUI | NOT RUN | SRT проверен настоящим ffprobe; визуальную загрузку в плеер пользователь может выполнить по checklist ниже. GUI — шаг 12+. |
+
+Артефакт успешного runner (игнорируется Git):
+`tmp/step03-pg-fcaa483ebd524195a3c00e261afcbf7c/checks.json`, exit 0.
+После обновления документации: uv run pytest -q -p no:cacheprovider tests/test_repository_audit.py::test_all_internal_document_links_resolve — 1 passed in 0.04s; uv run ruff check . / format --check . и git diff --check — PASS. Git check-ignore подтвердил исключение exports/*.txt/srt/json/md и .env.
+
+## Ограничения и ручной чек-лист
+
+- SRT RAW использует сохранённую гранулярность (в текущем pipeline — слова),
+  overlap не устраняется. MANUAL не имеет alignment и не экспортируется в SRT.
+- Итоговый text snapshot материализуется в RAM, как в шаге 10; файлы пишутся
+  фрагментами, исходные медиа/PCM не читаются. Нагрузочные замеры — этап 15.
+- Отмена действует до atomic publication; успешно опубликованный файл уже считается
+  записанным. Existing destination заменяется только с --overwrite.
+- Plain MANUAL сохраняет введённые подписи как часть пользовательского текста;
+  --roles управляет внешними подписями RAW/READABLE и не удаляет слова из MANUAL.
+- Legacy READABLE поддержан для conservative-text v1; неизвестный обработчик или
+  повреждённый snapshot вызывает явную ошибку без публикации результата.
+- Проверка пользователем: export JOB_UUID output.txt; повтор без --overwrite
+  должен сохранить файл; export output.srt, открыть в локальном плеере с исходным
+  видео и проверить времена >1h; export JSON и открыть выбранную MANUAL в TXT/MD.
+  Папка назначения должна существовать, UUID берётся из text versions.
+
+## Критерии приёмки
+
+- [x] Все четыре формата выгружаются из сохранённых данных после перезапуска.
+- [x] TXT readable/optional timestamps/roles, SRT indexes/ms/order, JSON metadata/model/segments,
+  RAW/READABLE/selected text, Markdown, Unicode и Windows-пути.
+- [x] SRT разбирается реальным subtitle demuxer ffprobe; визуальная ручная проверка отмечена отдельно.
+- [x] Коллизии/отмена/permission/disk errors не повреждают прежний файл или RAW.
+- [x] Unit/golden + реальные PG/FS integration, Ruff/format/diff, документы и матрица.
+
+Блокирующих проблем текущего этапа нет. Следующий этап — **ШАГ 12, PySide6: импорт, настройки и список заданий**, только после нового разрешения владельца.
+
+<details>
+<summary>История ШАГА 10 и предыдущих этапов</summary>
+
+
+# Состояние проекта
+
+Дата: 2026-10-13.
+
+## Текущий шаг
+
 ШАГ 10 — RAW-транскрипт, читаемый текст и версионирование. **READY FOR STEP 11**.
 Python 3.14.4, существующая .venv. ШАГ 11 не начат.
 По прямому разрешению владельца ШАГ 09 закоммичен и запушен до начала шага 10:
@@ -1148,6 +1255,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

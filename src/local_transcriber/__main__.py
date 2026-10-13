@@ -61,10 +61,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     transcribe.add_argument(
         "--end-ms", type=int, help="конец обрабатываемого диапазона от начала файла"
     )
+    from local_transcriber.infrastructure.export_cli import add_export_command
     from local_transcriber.infrastructure.text_cli import add_text_commands
 
     add_text_commands(commands)
+    add_export_command(commands)
     arguments = parser.parse_args(argv)
+    if arguments.command == "export":
+        from local_transcriber.application.export import ExportCancelled, ExportError
+        from local_transcriber.infrastructure.database.session import PersistenceError
+        from local_transcriber.infrastructure.export_cli import run_export
+        from local_transcriber.infrastructure.settings import ConfigurationError
+
+        try:
+            print(json.dumps({"exported": str(run_export(arguments))}, ensure_ascii=False))
+            return 0
+        except ExportCancelled, KeyboardInterrupt:
+            print("Экспорт отменён.", file=sys.stderr)
+            return 130
+        except PersistenceError as error:
+            print(f"Ошибка PostgreSQL: {error}", file=sys.stderr)
+            return 3
+        except (ExportError, ConfigurationError, ValueError) as error:
+            print(f"Ошибка экспорта: {error}", file=sys.stderr)
+            return 2
+        except OSError:
+            print("Ошибка экспорта: локальный файл недоступен.", file=sys.stderr)
+            return 2
     if arguments.command in {"text", "terms"}:
         from local_transcriber.infrastructure.database.session import PersistenceError
         from local_transcriber.infrastructure.settings import ConfigurationError

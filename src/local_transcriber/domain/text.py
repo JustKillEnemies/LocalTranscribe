@@ -158,11 +158,13 @@ def make_readable(
     ordered = ordered_segments(segments)
     pattern, replacements = _term_replacer(terms) if rules.normalize_terms else (None, {})
     paragraphs: list[str] = []
+    aligned: list[dict[str, object]] = []
     buffer = ""
     previous: TextSegment | None = None
     speaker: str | None = None
     multiple_streams = len({s.stream_index for s in ordered}) > 1
     stream: int | None = None
+    first_ms = last_ms = 0
 
     def flush() -> None:
         nonlocal buffer
@@ -178,6 +180,15 @@ def make_readable(
             if speaker:
                 prefix += f"{speaker}: "
             paragraphs.append(prefix + text)
+            aligned.append(
+                {
+                    "text": text,
+                    "start_ms": first_ms,
+                    "end_ms": last_ms,
+                    "stream_index": stream,
+                    "speaker_label": speaker,
+                }
+            )
         buffer = ""
 
     for segment in ordered:
@@ -191,6 +202,10 @@ def make_readable(
         ):
             flush()
         speaker, stream = segment.speaker_label, segment.stream_index
+        if not buffer:
+            first_ms, last_ms = segment.start_ms, segment.end_ms
+        else:
+            last_ms = max(last_ms, segment.end_ms)
         buffer = _append_text(buffer, segment.raw_text)
         previous = segment
     flush()
@@ -207,5 +222,6 @@ def make_readable(
             "rules": asdict(rules),
             "dictionary": dictionary,
             "source_digest": source_digest(ordered),
+            "paragraphs": aligned,
         },
     )
