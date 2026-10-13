@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -34,6 +35,7 @@ from local_transcriber.application.desktop import (
     JobChoices,
     available_actions,
 )
+from local_transcriber.application.maintenance import DeleteSession
 from local_transcriber.ui.bridge import DesktopBridge
 
 
@@ -85,9 +87,11 @@ class MainWindow(QMainWindow):
         self.refresh_button = QPushButton("Обновить подключение")
         self.settings_button = QPushButton("Выбрать .env…")
         self.result_button = QPushButton("Открыть транскрипт")
+        self.delete_button = QPushButton("Удалить историю…")
         toolbar.addWidget(self.add_button)
         toolbar.addWidget(self.refresh_button)
         toolbar.addWidget(self.result_button)
+        toolbar.addWidget(self.delete_button)
         toolbar.addStretch()
         toolbar.addWidget(self.settings_button)
         layout.addLayout(toolbar)
@@ -189,6 +193,7 @@ class MainWindow(QMainWindow):
         self.refresh_button.clicked.connect(lambda: self.bridge.submit("refresh"))
         self.settings_button.clicked.connect(self._choose_env)
         self.result_button.clicked.connect(self._open_result)
+        self.delete_button.clicked.connect(self._delete_history)
         self.table.itemSelectionChanged.connect(self._selection)
         self.start_button.clicked.connect(self._start)
         for button, command in (
@@ -273,6 +278,23 @@ class MainWindow(QMainWindow):
                 self._record(record)
         elif event.kind == "RECORD":
             self._record(event.value)
+        elif event.kind == "REMOVED":
+            self.records.pop(event.value, None)
+            self._received_at.pop(event.value, None)
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 0).data(Qt.ItemDataRole.UserRole) == event.value:
+                    self.table.removeRow(row)
+                    break
+            if self._selected == event.value:
+                self._selected = None
+            if self.table.rowCount():
+                self.table.selectRow(0)
+                self._selection()
+            else:
+                self._selected = None
+                self.streams.setRowCount(0)
+                self.details.setText("История пуста. Исходные записи сохранены.")
+                self.progress.setValue(0)
         elif event.kind == "QUEUED":
             self.queued.add(event.value)
         elif event.kind == "DEQUEUED":
@@ -415,6 +437,35 @@ class MainWindow(QMainWindow):
             and self.connected
             and not self._closing
         )
+        self.delete_button.setEnabled(
+            bool(
+                record
+                and record.id not in self.queued
+                and record.status not in {"PENDING", "ANALYZING", "PROCESSING", "PAUSED"}
+            )
+            and self.connected
+            and not self._closing
+            and not self._result_windows
+        )
+
+    def _delete_history(self) -> None:
+        if self._selected is None:
+            return
+        identifier = self._selected
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Удаление истории")
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText(
+            "Удалить все задания, сегменты и версии этой записи? Исходный аудио/видеофайл сохраняется."
+        )
+        checkbox = QCheckBox("Также удалить зарегистрированное промежуточное аудио приложения")
+        dialog.setCheckBox(checkbox)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        if dialog.exec() == QMessageBox.StandardButton.Yes:
+            self.bridge.submit(
+                "delete_session", DeleteSession(identifier, True, checkbox.isChecked())
+            )
 
     def _open_result(self) -> None:
         from local_transcriber.ui.results import ResultsWindow

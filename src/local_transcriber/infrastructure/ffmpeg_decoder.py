@@ -19,6 +19,7 @@ from local_transcriber.domain.audio import (
     AudioBlock,
     DecodeRange,
 )
+from local_transcriber.infrastructure.privacy import child_environment
 
 _EOF: Final = object()
 
@@ -99,6 +100,8 @@ class FFmpegMediaDecoder:
             "-nostdin",
             "-ss",
             _seconds(effective_start),
+            "-protocol_whitelist",
+            "file,pipe",
             "-i",
             str(path),
             "-map",
@@ -126,6 +129,7 @@ class FFmpegMediaDecoder:
                     stdout=subprocess.PIPE,
                     stderr=stderr,
                     shell=False,
+                    env=child_environment(),
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
             except OSError:

@@ -1288,3 +1288,132 @@ def test_results_editor_real_postgresql_save_reload_export(postgres, qtbot, monk
         assert restarted.manager is None
     finally:
         restarted.close()
+
+
+def test_history_delete_real_cascade_source_preservation(postgres, monkeypatch, tmp_path, capsys):
+    from test_privacy import registered
+
+    from local_transcriber.__main__ import main
+    from local_transcriber.application.transcript import TranscriptService
+    from local_transcriber.domain.text import Term
+    from local_transcriber.infrastructure import desktop_backend
+    from local_transcriber.infrastructure.database import session as session_module
+    from local_transcriber.infrastructure.database.text_store import (
+        PostgreSQLTranscriptStore,
+        TermRepository,
+    )
+    from local_transcriber.infrastructure.temp_storage import ManagedTempFiles
+
+    engine, factory, _ = postgres
+    jobs, streams = _completed_text_job(factory)
+    JobRepository(factory).transition(jobs[1], JobStatus.CANCELLED)
+    source = tmp_path / "original & user.mp4"
+    source.write_bytes(b"synthetic original never modified")
+    before = source.read_bytes()
+    with transaction(factory) as session:
+        media_id = session.get(TranscriptionJob, jobs[0]).media_file_id
+        session.get(MediaFile, media_id).file_path = str(source)
+    terms = TermRepository(factory)
+    terms.create(Term("Shared dictionary"))
+    text_service = TranscriptService(PostgreSQLTranscriptStore(factory), terms)
+    readable = text_service.readable(jobs[0])
+    text_service.manual(jobs[0], readable.id, "synthetic private manual")
+    monkeypatch.setenv("LOCAL_TRANSCRIBER_LOGS_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("LOCAL_TRANSCRIBER_TEMP_DIR", str(tmp_path / "temp"))
+    storage = ManagedTempFiles(tmp_path / "temp")
+    derived = registered(storage, jobs[0], "wav", "retained")
+    unknown = derived.parent / "user-copy.mp4"
+    unknown.write_bytes(b"not owned")
+    monkeypatch.setattr(session_module, "make_engine", lambda settings: engine)
+    assert main(["maintenance", "delete", str(media_id)]) == 2
+    with transaction(factory) as session:
+        assert session.scalar(select(func.count()).select_from(TranscriptVersion)) == 3
+    capsys.readouterr()
+    assert (
+        main(["maintenance", "delete", str(media_id), "--confirm-delete", "--remove-derived"]) == 0
+    )
+    output = capsys.readouterr()
+    import json
+
+    result = json.loads(output.out)
+    assert result["jobs_deleted"] == 2 and result["files_deleted"] == 1
+    assert not result["cleanup_pending"]
+    assert source.read_bytes() == before and unknown.exists() and not derived.exists()
+    with transaction(factory) as session:
+        for model in (
+            MediaFile,
+            AudioStream,
+            TranscriptionJob,
+            ProcessingChunk,
+            TranscriptSegment,
+            TranscriptVersion,
+        ):
+            assert session.scalar(select(func.count()).select_from(model)) == 0
+        assert session.scalar(select(func.count()).select_from(CustomTerm)) == 1
+    monkeypatch.setattr(desktop_backend, "make_engine", lambda settings: engine)
+    restarted = desktop_backend.DesktopService(settings=load_settings())
+    try:
+        events = restarted.execute("refresh")
+        assert next(event.value for event in events if event.kind == "RECORDS") == []
+        assert restarted.manager is None
+    finally:
+        restarted.close()
+
+
+def test_history_active_corrupt_database_and_rollback(postgres, tmp_path):
+    import socket
+
+    from pydantic import SecretStr
+
+    from local_transcriber.infrastructure.database.history_store import PostgreSQLHistoryStore
+
+    engine, factory, _ = postgres
+    source = tmp_path / "user source.mkv"
+    source.write_bytes(b"source")
+    media, streams, jobs = seed(factory, str(source))
+    store = PostgreSQLHistoryStore(factory)
+    with pytest.raises(ValueError, match="активной"):
+        store.delete_session(media, lambda snapshot: None)
+    for job in jobs:
+        JobRepository(factory).transition(job, JobStatus.CANCELLED)
+    # A damaged schema/integrity error during cascade must roll back the parent and children.
+    with engine.begin() as connection:
+        connection.execute(
+            text("""
+            CREATE FUNCTION reject_history_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'synthetic private diagnostic'; END $$
+        """)
+        )
+        connection.execute(
+            text(
+                "CREATE TRIGGER reject_delete BEFORE DELETE ON audio_streams FOR EACH ROW EXECUTE FUNCTION reject_history_delete()"
+            )
+        )
+    with pytest.raises(PersistenceError) as error:
+        store.delete_session(media, lambda snapshot: None)
+    assert "synthetic private" not in str(error.value)
+    with transaction(factory) as session:
+        assert session.get(MediaFile, media) is not None
+        assert session.scalar(select(func.count()).select_from(AudioStream)) == 2
+        assert session.scalar(select(func.count()).select_from(TranscriptionJob)) == 2
+    assert source.read_bytes() == b"source"
+    # An actually unavailable loopback PostgreSQL endpoint, not SQLite or a mocked connection.
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    settings = load_settings().model_copy(
+        update={
+            "postgres_dsn": None,
+            "postgres_host": "127.0.0.1",
+            "postgres_port": port,
+            "postgres_user": "synthetic",
+            "postgres_password": SecretStr("synthetic secret"),
+        }
+    )
+    unavailable_engine = make_engine(settings)
+    try:
+        with pytest.raises(PersistenceError) as error:
+            PostgreSQLHistoryStore(session_factory(unavailable_engine)).protected_sources()
+        assert "synthetic secret" not in str(error.value)
+    finally:
+        unavailable_engine.dispose()

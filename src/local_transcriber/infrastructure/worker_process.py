@@ -239,8 +239,15 @@ def execute_task(task: WorkerTask, store: RemoteStore, control: WorkerControl, c
         from pathlib import Path
 
         from local_transcriber.infrastructure.intermediate_audio import RecordingDecoder
+        from local_transcriber.infrastructure.temp_storage import ManagedTempFiles
 
-        decoder = RecordingDecoder(decoder, lambda: Path(audio["directory"]) / str(store.job_id))
+        managed = ManagedTempFiles(Path(audio["directory"]).parent)
+        decoder = RecordingDecoder(
+            decoder,
+            lambda: Path(audio["directory"]) / str(store.job_id),
+            managed=managed,
+            job_id=lambda: store.job_id,
+        )
     pipeline = TranscriptionPipeline(
         decoder,
         SileroSpeechSegmenter(SegmentationConfig(**task.vad_config)),

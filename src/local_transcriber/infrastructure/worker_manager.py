@@ -118,6 +118,17 @@ class WorkerManager:
 
     def _emit(self, event: WorkerEvent) -> None:
         with self._lock:
+            # A slow UI may miss progress updates, but must retain terminal acknowledgments
+            # for its bounded pending commands/tickets while waiting on SQL/import/export.
+            terminal = {"COMPLETED", "CANCELLED", "INTERRUPTED", "ERROR", "IPC_ERROR"}
+            if len(self._events) == self._events.maxlen:
+                for index, previous in enumerate(self._events):
+                    if previous.kind not in terminal:
+                        del self._events[index]
+                        break
+                else:
+                    if event.kind not in terminal:
+                        return
             self._events.append(event)
         self._wake.set()
 

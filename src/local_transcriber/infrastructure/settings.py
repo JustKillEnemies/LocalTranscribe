@@ -60,6 +60,7 @@ class AppSettings(BaseSettings):
     vad_min_silence_ms: int = Field(default=500, ge=32, le=5000)
     vad_padding_ms: int = Field(default=200, ge=0, le=1000)
     vad_max_speech_ms: int = Field(default=30_000, ge=1000, le=60_000)
+    temp_retention_hours: int = Field(default=24, ge=1, le=8760)
 
     @field_validator("data_dir", "cache_dir", "models_dir", "logs_dir", "temp_dir", "model_path")
     @classmethod

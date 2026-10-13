@@ -1,6 +1,7 @@
 """Export saved text through ports, without media decoding or recognition."""
 
 import json
+import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -29,6 +30,19 @@ class ExportFormat(StrEnum):
     SRT = "srt"
     JSON = "json"
     MARKDOWN = "md"
+
+
+def export_filename(source_name: str, format: ExportFormat) -> str:
+    """A portable suggestion, never silently rewrite the destination selected by the user."""
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", source_name.rsplit(".", 1)[0]).strip(" .")[:100]
+    if not stem:
+        stem = "transcript"
+    if re.fullmatch(
+        r"(?i:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]|CONIN\$|CONOUT\$)",
+        stem.split(".")[0].rstrip(" ."),
+    ):
+        stem = "_" + stem
+    return f"{stem}.{format.value}"
 
 
 @dataclass(frozen=True)

@@ -198,3 +198,17 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | TZ-ARCH/TZ-UI: границы и DB context | [results.py](../src/local_transcriber/application/results.py), [window.py](../src/local_transcriber/ui/window.py) | Request UUID correlation, actor SQL/save/export, .env запрещён при открытых результатах, Qt player в UI process; GPU отдельно. |
 
 Вердикт и фактические PASS/NOT RUN — только [progress.md](progress.md).
+
+## Артефакты и проверки шага 14
+
+| Требование | Артефакт | Проверка / граница |
+| --- | --- | --- |
+| NFR-04/NFR-05/§10: приватность логов/секретов | [diagnostics.py](../src/local_transcriber/infrastructure/diagnostics.py), [privacy.py](../src/local_transcriber/infrastructure/privacy.py), [test_privacy.py](../tests/test_privacy.py) | Password/transcript/traceback не форматируются даже при disk-full handler error; native Qt opaque message/media dump regression, secret-free real child env. |
+| NFR-05: права локальных данных | [privacy.py](../src/local_transcriber/infrastructure/privacy.py) | Реальный Windows icacls DACL private owner/SYSTEM/Admins, отсутствие public grants, ACL denial safe retry; existing unknown directory preserved. POSIX chmod ветка отдельно не проверялась. |
+| NFR-02/NFR-05: temp retention и источники | [temp_storage.py](../src/local_transcriber/infrastructure/temp_storage.py), [intermediate_audio.py](../src/local_transcriber/infrastructure/intermediate_audio.py) | Registered old tmp/TTL, fresh/retained/unknown/protected source, OS lease busy, traversal/corrupt registry/hardlinks/permission retry; managed bounded WAV через настоящий FFmpeg. |
+| §7.8/NFR-05: явное удаление истории/производных | [maintenance.py](../src/local_transcriber/application/maintenance.py), [history_store.py](../src/local_transcriber/infrastructure/database/history_store.py), [test_postgresql.py](../tests/test_postgresql.py) | Реальная PG cascade всех session rows, RAW/READABLE/MANUAL удаляются только explicitly; original/unknown file/custom dictionary сохранены; active reject/transaction rollback/restart. |
+| §4/§10/NFR-03: UI/CLI confirmation и ошибки | [maintenance_cli.py](../src/local_transcriber/infrastructure/maintenance_cli.py), [window.py](../src/local_transcriber/ui/window.py) | No-confirm no-DB calls, default No, derived opt-in, capture UUID before async modal change; unavailable loopback DB и damaged-schema deletion diagnostic. |
+| NFR-03/NFR-02/§5.2: crash/recovery/queues | [worker_manager.py](../src/local_transcriber/infrastructure/worker_manager.py), [test_worker.py](../tests/test_worker.py), [test_postgresql.py](../tests/test_postgresql.py) | Windows crash/cancel/restart/checkpoints, existing child cleanup, bounded terminal/progress buffer regression. |
+| NFR-05/FR-10: paths/export filename | [export.py](../src/local_transcriber/application/export.py), [export_files.py](../src/local_transcriber/infrastructure/export_files.py) | Safe suggested Unicode filename/reserved/control chars, original collision protection, special-character source + real ffprobe/FFmpeg, existing exporter negative tests. |
+
+Результаты/статус и ручной долг шага 13 — только [progress.md](progress.md).

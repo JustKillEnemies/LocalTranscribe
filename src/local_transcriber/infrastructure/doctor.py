@@ -15,6 +15,7 @@ from pathlib import Path
 
 from pydantic import PostgresDsn, TypeAdapter, ValidationError
 
+from local_transcriber.infrastructure.privacy import child_environment
 from local_transcriber.infrastructure.settings import AppSettings
 
 
@@ -33,11 +34,7 @@ class CheckResult:
 
 
 def _run(arguments: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
-    environment = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.upper().startswith(("LOCAL_TRANSCRIBER_", "PG"))
-    }
+    environment = child_environment()
     environment["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
         arguments,

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from local_transcriber.domain.media import AudioStreamInfo, MediaInfo
+from local_transcriber.infrastructure.privacy import child_environment
 
 SUPPORTED_EXTENSIONS = frozenset({".mkv", ".mp4", ".mov", ".wav", ".mp3", ".m4a", ".flac", ".webm"})
 FINGERPRINT_BLOCK_SIZE = 1024 * 1024
@@ -151,6 +152,8 @@ class MediaInspector:
                 executable,
                 "-v",
                 "error",
+                "-protocol_whitelist",
+                "file,pipe",
                 "-show_entries",
                 "format=format_name,duration:stream=index,codec_type,codec_name,sample_rate,channels,start_time:stream_tags=language,title",
                 "-of",
@@ -164,6 +167,7 @@ class MediaInspector:
                     stdout=stdout,
                     stderr=stderr,
                     shell=False,
+                    env=child_environment(),
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
                 try:

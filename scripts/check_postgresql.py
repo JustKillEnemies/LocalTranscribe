@@ -58,6 +58,8 @@ def main() -> int:
         UV_CACHE_DIR=str(root / ".cache/uv"),
         UV_PYTHON_DOWNLOADS="never",
         PYTEST_DEBUG_TEMPROOT=str(work / "pytest"),
+        LOCAL_TRANSCRIBER_LOGS_DIR=str(work / "logs"),
+        LOCAL_TRANSCRIBER_TEMP_DIR=str(work / "temp"),
     )
     portable_bin = root / "tmp/step04-tools/ffmpeg-9.0.2-essentials_build/bin"
     for variable, executable in (

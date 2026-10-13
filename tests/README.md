@@ -215,3 +215,20 @@ pytest-qt; QT_QPA_PLATFORM=offscreen. GUI export path с real writer/DB пров
 `test_results_editor_real_postgresql_save_reload_export` в изолированной PostgreSQL.
 Он также проверяет reload, RAW неизменность и отказ MANUAL SRT; worker не создаётся.
 Ручной playback Windows/original OBS MKV/MP4 и фактические результаты — progress.
+
+## Приватность и обслуживание, шаг 14
+
+`test_privacy.py` — 11 focused cases: typed logs/exception/disk full, registered
+TTL/lease/retained/source/unknown files, corrupt traversal/hardlink, permission retry,
+no-confirm service/CLI, safe filenames/terminal queue, real FFmpeg special-char
+path + secret-free env + managed WAV, real Windows DACL/retry, GUI async confirmation,
+fresh native Qt media/message privacy with debug env intentionally enabled.
+FFmpeg/ffprobe paths должны быть настроены; native ACL/Qt cases требуют Windows.
+Все данные synthetic, фиксированные strings паролей — test-only.
+
+`test_history_delete_real_cascade_source_preservation` и
+`test_history_active_corrupt_database_and_rollback` используют настоящую отдельную
+PostgreSQL/schema, реальный cascade/rollback и unavailable loopback endpoint.
+Test-only engine routing направляет CLI на fixture schema, не заменяет DB mock/SQLite.
+Runner logs/temp изолированы в workspace tmp/. Crash/checkpoint recovery повторно
+проверяется прежним integration scenario. Фактические команды/результаты — progress.

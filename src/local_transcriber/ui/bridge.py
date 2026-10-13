@@ -72,6 +72,9 @@ class DesktopBridge(QObject):
                         for event in backend.poll():
                             self.event.emit(event)
                 except Exception as error:
+                    from local_transcriber.infrastructure.diagnostics import AuditEvent, audit
+
+                    audit(AuditEvent.OPERATION_FAILED, getattr(payload, "job_id", None))
                     # Known application exceptions contain safe messages; unexpected exceptions
                     # don't expose SQL, settings, raw probe output or transcript via str(error).
                     from local_transcriber.application.export import ExportError

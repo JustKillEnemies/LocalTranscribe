@@ -33,6 +33,7 @@ from local_transcriber.application.export import (
     ExportDocument,
     ExportFormat,
     ExportOptions,
+    export_filename,
     timestamp,
 )
 from local_transcriber.application.results import ResultRequest
@@ -443,7 +444,7 @@ class ResultsWindow(QDialog):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Экспорт транскрипта",
-            f"transcript.{fmt.value}",
+            export_filename(str(self.document.media["filename"]), fmt),
             f"{fmt.value.upper()} (*.{fmt.value})",
         )
         if path:

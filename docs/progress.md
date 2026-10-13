@@ -4,6 +4,141 @@
 
 ## Текущий шаг
 
+ШАГ 14 — устойчивость, приватность и журналирование.
+**READY FOR STEP 15** по реализации и проверкам этого этапа; ШАГ 15 не начат.
+CPython 3.14.4, прежняя .venv; никаких новых библиотек/моделей/CUDA/migrations.
+ШАГ 13 по разрешению владельца закоммичен/запушен: `b11e4c4`, origin/main.
+Новый запрос «сделай что дальше требуется» принят как разрешение ШАГА 14 с явно
+сохранённым долгом: ручная Windows original OBS MKV/MP4 проверка шага 13 — NOT RUN,
+сама приёмка ШАГА 13 не объявляется завершённой. Это не разрешение считать весь MVP готовым.
+Изменения шага 14 не коммитились/не пушились, пользовательские данные не удалялись.
+
+## Реализовано
+
+- Strict JSON diagnostics только time/event/level/job UUID; никаких raw log messages,
+  args, exception text/traceback/paths/transcripts/passwords. Rotation 1 MB ×4,
+  journal write/close failure не печатает приватный record и не ломает успешную операцию.
+- Dedicated managed dirs + ownership markers/private Windows DACL; custom/source
+  parents не chmod/recurse. После ACL отказа удаляется только только что созданный
+  пустой собственный dir, безопасный retry проверен на Windows.
+- Secrets удаляются из окружения FFmpeg/ffprobe/doctor/ACL tools, subprocess shell=False;
+  FFmpeg/ffprobe file,pipe protocols, Qt file-only + suppressed media dumps/raw messages.
+  Scoped Qt policy восстанавливается при завершении, исходные media не копируются.
+- ManagedTempFiles exact registration, per-job OS lease, validated bounded registry/
+  scan и 24 h TTL из AppSettings; normal fresh/retained/source/unknown files не чистятся.
+  Повреждённый реестр/traversal/symlink/junction/hardlink отказ, cleanup report/retry.
+- RecordingDecoder в real worker пишет registered bounded WAV без overwrite; старые
+  незарегистрированные intermediate files не присваиваются новой политике.
+- Явное удаление session из GUI/CLI: DB locks/active rejection/FK transaction cascade;
+  source protection metadata до DELETE, originals/custom dictionary/exports сохраняются.
+  Registered WAV source flag переживает удаление DB metadata. FS cleanup после DB commit
+  opt-in; partial cleanup_pending и explicit job UUID retry. Исходные OBS никогда unlink.
+- GUI default No/derived checkbox; selection UUID snapshot до modal confirmation,
+  запрет при editor/active/queue; REMOVED обновляет таблицу/состояние. Terminal event
+  priority при bounded progress overflow. Прежний graceful worker shutdown сохранён.
+- .env.example/README/architecture/ADR/traceability/testing обновлены. Consent участников
+  упомянуто без заявления о конкретных правовых требованиях для юрисдикции пользователя.
+
+Созданы application/maintenance.py; infrastructure/{privacy,diagnostics,temp_storage,
+maintenance_cli}.py; infrastructure/database/history_store.py; tests/test_privacy.py.
+Изменены __main__.py, application/export.py, infrastructure/{desktop_backend,doctor,
+export_cli,export_files,ffmpeg_decoder,media,settings,intermediate_audio,transcribe_cli,
+worker_manager,worker_process}.py, ui/{window,results,bridge,bootstrap}.py,
+scripts/check_postgresql.py, tests/test_postgresql.py, .env.example, README.md,
+tests/README.md, docs/{architecture,decisions,requirements_traceability,progress}.md.
+Python пути выше относительно src/local_transcriber/. requirements/ORIGINAL_TZ,
+pyproject/uv.lock/.gitignore и existing source/launchers сохранены.
+
+## Реально выполненные проверки
+
+| Команда / сценарий | Результат |
+| --- | --- |
+| Python --version / окружение | PASS: CPython 3.14.4, существующая .venv. |
+| Initial privacy/desktop/results | 23 passed, 1 failed in 7.30s; Windows icacls /save UTF-16LE без BOM. Исправлено только чтение test artifact. |
+| Isolated PG runner: privacy/desktop/results/CLI/worker + 3 PG targets + doc links | PASS: 65 passed in 21.51s, без SKIP; реальная PostgreSQL 18.3 test DB/random schemas, cluster остановлен. |
+| PG deletion | PASS: CLI подтверждение/cascade media/audio/jobs/chunks/segments/RAW+READABLE+MANUAL, original bytes/unknown files/shared terms preserved, restart history empty/no worker. |
+| PG failures | PASS: active session reject; real SQL integrity/schema fault rolls back parent+children; unavailable loopback endpoint даёт безопасный PersistenceError без секретов. Физическое повреждение PostgreSQL files не моделировалось. |
+| Worker crash/checkpoints/recovery | PASS: существующий real spawn/PG scenario (synthetic executor, не CUDA/STT) pause→kill→INTERRUPTED→restart→resume→cancel, подтверждённые checkpoints сохранены. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS: head 0003_audio_timeline, No new upgrade operations detected; новых migrations нет. |
+| Focused privacy/media/decoder/export/doctor/settings | PASS: 120 passed in 12.25s, без SKIP, после managed WAV/GUI selection regression. |
+| После Qt protocol/log policy: privacy/desktop/media/decoder | PASS: 47 passed in 9.59s, без SKIP; fresh native Windows Qt load/messages без private output/Input dump при намеренно включённом debug env. |
+| После ACL recovery: python -m pytest -q tests/test_privacy.py | PASS: 11 passed in 4.68s; real Windows DACL + safe retry, FFmpeg managed WAV/paths/env, native Qt, lease/registry/permission/log failures. |
+| Ruff/diff в успешном PG runner | PASS: All checks passed, 91 files formatted, git diff --check. |
+| Финальные проверки после docs/filename correction | PASS: uv pytest final targets — 62 passed in 9.97s, без SKIP; после уточнения job UUID отдельно 1 passed in 0.16s; Ruff All checks passed, 91 files formatted; git diff --check, uv lock --check (58 packages), внутренние ссылки — PASS. |
+| Git exclusions / secrets / ownership | PASS: .env/.venv и конкретные log/model/media/recording/transcript/tmp paths игнорируются, git status не показывает пользовательские данные; новые password literals только synthetic; known credential/private-key pattern scan новых/изменённых файлов: 0 matches (не универсальный secret detector). git diff --exit-code подтвердил неизменность ORIGINAL_TZ/requirements/pyproject/uv.lock/src/main.py. |
+| POSIX ACL/leases / full regression / real CUDA/new E2E | NOT RUN: целевая Windows, stage-specific checks; E2E/quality/performance — 15, не реализованы этим этапом. |
+| Ручной original OBS MKV/MP4 gate ШАГА 13 | NOT RUN: долг сохранён по явному разрешению продолжения, не заменён native automatic smoke. |
+
+Фактические команды:
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'
+$env:PYTEST_QT_API = 'pyside6'
+$env:PATH = (Join-Path (Get-Location) 'tmp/step04-tools/ffmpeg-9.0.2-essentials_build/bin') + ';' + $env:PATH
+.\.venv\Scripts\python.exe scripts/check_postgresql.py --pytest-target tests/test_privacy.py --pytest-target tests/test_desktop.py --pytest-target tests/test_results.py --pytest-target tests/test_cli.py --pytest-target tests/test_worker.py --pytest-target tests/test_postgresql.py::test_history_delete_real_cascade_source_preservation --pytest-target tests/test_postgresql.py::test_history_active_corrupt_database_and_rollback --pytest-target tests/test_postgresql.py::test_worker_pause_cancel_and_crash_preserve_checkpoints --pytest-target tests/test_repository_audit.py::test_all_internal_document_links_resolve
+uv run pytest -q tests/test_privacy.py tests/test_media.py tests/test_ffmpeg_decoder.py tests/test_export.py tests/test_doctor.py tests/test_settings.py
+python -m pytest -q tests/test_privacy.py tests/test_desktop.py tests/test_media.py tests/test_ffmpeg_decoder.py
+python -m pytest -q tests/test_privacy.py
+uv run ruff check .
+uv run ruff format --check .
+git diff --check
+```
+
+FFmpeg/ffprobe paths и PYTEST_DEBUG_TEMPROOT задавались portable_bin/unique workspace
+tmp/, никакая служба PostgreSQL/глобальный Python/working DB не менялись.
+PG artifact: tmp/step03-pg-1c13df6442de48a0b08b0d0c136fd5ec/checks.json.
+Native Qt проверка находится в test_privacy.py, auto media load/opacity, не human playback.
+Фиксированные fake password/transcript literals в tests не являются пользовательскими секретами.
+
+## Исправленные ошибки и ограничения
+
+Устранены: DB secrets в media child env; стандартный logging.handleError disclosure
+при disk-full; early ticket ошибочно мог считаться job UUID (исправлено/проверено); Qt media metadata dump; UTF-16LE/no-BOM ACL artifact reading; async
+selection race при delete confirm; ACL refusal blocking safe retry; terminal ack
+вытеснялся progress updates. Production behavior подтверждён целевыми regressions.
+
+Файлы и БД не имеют общей транзакции: DB commit + cleanup_pending для FS.
+Unknown/legacy WAV, user exports, stale roots, manifest swap orphans/metadata не
+удаляются автоматикой. Retained WAV могут занимать место до explicit registered
+derived deletion; source-flag WAV всегда защищены. Scan <=5000 dirs, registry <=1 MiB/
+4096 entries; это не бесконечное хранилище. Текущий temp root обслуживается отдельно
+от прежних пользовательских roots; неизвестные owned markers не реконструируются.
+ACL не шифрует, Admin/SYSTEM/owner имеют доступ; ACL исходников/службы PG не менялся.
+Windows local filesystem — проверенная цель; network FS/POSIX не объявляются проверенными.
+Qt FFmpeg config private API требует повторения native privacy test при обновлении Qt.
+Terminal deque не заменяет durable DB, сторонний caller должен регулярно poll.
+
+## Критерии готовности / ручной чек-лист
+
+- [x] Нет паролей/транскриптов в managed diagnostics, включая write failure/native Qt.
+- [x] Safe processes/env/protocols/paths/export names, private owned ACL на Windows.
+- [x] Auto cleanup по ownership/TTL/lease, retained/source/unknown preserved.
+- [x] Confirmed session deletion, active rejection, transactional rollback/cascade,
+  original/shared terms preserved, retryable derived cleanup.
+- [x] Worker crash/restart/checkpoints, bounded events/queue, no secret/media Git additions.
+- [x] Docs/traceability/ADR актуализированы; статус проверок различает actual/NOT RUN.
+
+Ручная проверка в своей среде (не требуется удалять реальные записи для теста):
+1. Открыть GUI, убедиться в понятной диагностике без DB/при inaccessible temp/log dirs.
+2. На отдельной synthetic/imported session отменить «Удалить историю» — строка остаётся;
+   подтвердить delete с нужным derived выбором — original должен остаться на диске.
+3. При cleanup_pending закрыть writer/исправить права и повторить maintenance cleanup
+   по прежнему job UUID; неизвестные файлы/экспорты не удалять этой командой.
+4. Проверить diagnostics.jsonl: только разрешённые поля; при необходимости получить
+   согласие участников до импорта и отдельно закрыть ручной playback gate шага 13.
+
+Блокирующих проблем ШАГА 14 не выявлено. **READY FOR STEP 15**, только по новому
+разрешению; ручной долг ШАГА 13 остаётся открытым и войдёт в общую релизную приёмку.
+
+<details>
+<summary>История ШАГА 13 и предыдущих этапов</summary>
+
+# Состояние проекта
+
+Дата: 2026-10-13.
+
+## Текущий шаг
+
 ШАГ 13 — PySide6: редактор, поиск и воспроизведение.
 **IMPLEMENTED / MANUAL VERIFICATION PENDING — BLOCKED FOR ACCEPTANCE**.
 CPython 3.14.4, существующая .venv; новых зависимостей/миграций нет.
@@ -1525,6 +1660,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

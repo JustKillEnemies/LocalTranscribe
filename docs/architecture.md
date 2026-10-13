@@ -568,3 +568,60 @@ positionChanged и сегменты делят integer-ms шкалу; клик �
 MANUAL не имеет alignment; синхронизация относится к исходной таблице, правкам
 не присваиваются вымышленные таймкоды. Текущие API: [QMediaPlayer](https://doc.qt.io/qtforpython-6/PySide6/QtMultimedia/QMediaPlayer.html),
 [QAudioOutput](https://doc.qt.io/qtforpython-6/PySide6/QtMultimedia/QAudioOutput.html).
+
+## Устойчивость, приватность и обслуживание (границы шага 14)
+
+`infrastructure.diagnostics.DiagnosticLog` — owned lifecycle в GUI/CLI composition:
+RotatingFileHandler, strict SafeFormatter и non-echoing handleError. Formatter
+никогда не форматирует msg/args/exception/stack, принимает только allowlisted
+AuditEvent/UUID/time/level. Root logging не настраивается; scoped namespace
+local_transcriber отключает propagate при открытом журнале и восстанавливается
+при close. Ошибка journal close/write не ломает успешную бизнес-операцию.
+Обоснованное mutable состояние стандартного logging ограничено этим lifecycle.
+
+`privacy.private_directory` работает только с dedicated managed-v1 child и
+ownership marker; не присваивает чужие existing dirs. Только новые owned children
+получают ACL owner/user/SYSTEM/Administrators (Windows), 0700 (POSIX). При отказе
+ACL удаляется только собственный вновь созданный пустой каталог, позволяя retry.
+Родительские/custom/source dirs и PostgreSQL service ACL не меняются. API инструментов:
+[icacls](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls),
+[whoami](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/whoami).
+
+`privacy.child_environment` исключает LOCAL_TRANSCRIBER_*, PG*, password/secret/token/
+API key variables и DATABASE_URL из doctor/ffprobe/FFmpeg/ACL subprocess; shell=False,
+скрытые окна Windows. FFmpeg/ffprobe protocol whitelist file,pipe; Qt bootstrap
+QtPrivacy задаёт file-only whitelist/отключает media dumps и opaque Qt messages.
+Environment/message handler/filter восстанавливаются после QApplication disposal.
+[Qt FFmpeg configuration](https://doc.qt.io/qt-6/advanced-ffmpeg-configuration.html)
+описывает private API: набор закреплён PySide6 6.12.0 и проверяется native regression.
+У MediaDataHolder info logging отключается, чтобы не вызывать av_dump_format
+([Qt source](https://github.com/qt/qtmultimedia/blob/dev/src/plugins/multimedia/ffmpeg/playbackengine/qffmpegmediadataholder.cpp)).
+
+`ManagedTempFiles` — root temp_dir/managed-v1, job UUID child, ownership marker,
+artifacts.json registry и OS lease (msvcrt/Windows, flock/POSIX). RecordingDecoder
+получает registry/job provider в worker, регистрирует exact unique tmp/wav names до
+записи; bounded WAV publish exclusive rename/link без clobber. Родительский manifest
+STT остаётся неизменным; root выбирается из frozen intermediate directory parent.
+Старый intermediate/ не принимается автоматически. Temp TTL по AppSettings — 24 h,
+не цифра оригинального ТЗ; задаётся 1–8760 h. Читаются bounded registry <=1 MiB/4096
+entries, scan <=5000 dirs за вызов, нет recursive rmtree/неограниченного glob.
+Cleanup только registered expired temporary, вне lease writer, без symlink/junction/
+hardlink и protected source paths. Retained WAV не удаляются автоматически.
+
+`application.maintenance.DeleteHistory`/ports/DTO — явная confirmed операция.
+PostgreSQLHistoryStore блокирует media/job rows, запрещает active/PENDING/PAUSED,
+snapshot всех source paths, callback классифицирует owned source WAV до DELETE.
+При FS protection failure DB rollback; source-классификация безопасна и при rollback.
+FK cascade удаляет сессию/производные строки, общий словарь не трогает. Файловая
+очистка после commit не атомарна с БД: cleanup_pending и повтор по UUID. Source flag
+остаётся в registry после удаления DB history. Никогда не unlink original media.
+User exports/unknown/legacy/files в иных temp roots не считаются принадлежащими
+текущему workspace. Metadata/lease файлы и неизвестные orphan swap files остаются.
+
+CLI maintenance delete/cleanup требует confirm flag для retained/session delete;
+GUI требует modal confirmation с default No и opt-in derived checkbox. Media UUID
+фиксируется до диалога, чтобы asynchronous selection change не удалил другую запись.
+Открытые результаты/queued/active jobs запрещают GUI deletion. REMOVED event
+согласованно обновляет записи/таблицу/выбор. Worker process/job object/FIFO и graceful
+shutdown сохраняются; bounded event deque вытесняет progress перед terminal events
+в поддерживаемой bounded очереди GUI/CLI. Это не durable event journal.

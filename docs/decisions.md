@@ -217,3 +217,15 @@
 | ADR-085 | Virtual QAbstractTableModel + proxy filters и debounce literal search/highlighter с UTF-16 offsets. | 1000 сегментов без отдельных widgets, Unicode/emoji подсвечиваются корректно; фильтры не переписывают полный текст. |
 | ADR-086 | Qt Multimedia читает original local path; active source segments используют positionChanged integer-ms, MANUAL alignment не угадывается. | Единая шкала и отсутствие копий/PCM в GUI; отсутствие файла/кодека не скрывает сохранённый текст. |
 | ADR-087 | Выбор звука Qt отдельный от фильтра stream_index; GUI экспортирует конкретную сохранённую версию. | Нумерация Qt не равна ffprobe; черновик не выдаётся за сохранённую версию, MANUAL SRT отвергается прежним сервисом. |
+
+## Приватность и обслуживание, ШАГ 14 — 2026-10-13
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-088 | Strict allowlisted JSON diagnostics, scoped namespace и non-echoing handleError/close, rotation 1 MB ×4. | Ни текст сообщений, ни args/exception/traceback не попадают в journal или fallback при disk full. |
+| ADR-089 | Dedicated owned managed-v1 children с ownership marker и private ACL, без изменения пользовательских родителей. | Права на исходники/custom roots не переписываются; unknown dirs не присваиваются, ACL failure safe retry. |
+| ADR-090 | Registered exact temp/WAV names + per-job OS lease + TTL 24 h (AppSettings 1–8760), bounded scan/registry. | Автоочистка не затрагивает active writer, retained/unknown/legacy/media; no recursive user-data deletion. |
+| ADR-091 | DB row locks/cascade + nondestructive source-protection callback до DELETE; owned WAV source flag сохраняется в registry. | Исходник, бывший промежуточным WAV, не теряется после удаления metadata; callback failure откатывает DB. |
+| ADR-092 | Файлы чистить после DB commit, cleanup_pending + explicit UUID retry, общий словарь/exports сохранять. | Нет ложной атомарности DB+FS и тихой потери файлов; повтор работает после удаления DB job. |
+| ADR-093 | Local-only protocol whitelist, secret-free child env, scoped Qt debug/message suppression; actual Qt native regression. | Устраняет наследование DB credentials/metadata dumps, блокирует nested network processing без внешних API. |
+| ADR-094 | Confirmation binds media UUID до диалога; default No, separate derived opt-in; terminal events приоритетнее progress. | Async UI не удаляет соседнюю запись, overload не теряет terminal ack в bounded GUI/CLI workflow. |

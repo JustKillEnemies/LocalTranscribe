@@ -25,15 +25,21 @@ class AtomicExportWriter:
     ) -> Path:
         destination = destination.absolute()
         name = destination.name
+        if any(ord(character) < 32 for character in name):
+            raise ExportError("Имя файла содержит управляющие символы.")
         if os.name == "nt" and (
             any(character in name for character in '<>:"|?*')
             or name.endswith((".", " "))
-            or name.split(".")[0].upper()
+            or name.split(".")[0].rstrip(" .").upper()
             in {
                 "CON",
                 "PRN",
                 "AUX",
                 "NUL",
+                "CONIN$",
+                "CONOUT$",
+                *(f"COM{i}" for i in "¹²³"),
+                *(f"LPT{i}" for i in "¹²³"),
                 *(f"COM{i}" for i in range(1, 10)),
                 *(f"LPT{i}" for i in range(1, 10)),
             }

@@ -64,15 +64,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--end-ms", type=int, help="конец обрабатываемого диапазона от начала файла"
     )
     from local_transcriber.infrastructure.export_cli import add_export_command
+    from local_transcriber.infrastructure.maintenance_cli import add_maintenance_command
     from local_transcriber.infrastructure.text_cli import add_text_commands
 
     add_text_commands(commands)
     add_export_command(commands)
+    add_maintenance_command(commands)
     arguments = parser.parse_args(argv)
     if arguments.command == "gui":
         from local_transcriber.ui.bootstrap import run_gui
 
         return run_gui(arguments.env_file)
+    if arguments.command == "maintenance":
+        from local_transcriber.infrastructure.database.session import PersistenceError
+        from local_transcriber.infrastructure.maintenance_cli import run_maintenance
+
+        try:
+            print(json.dumps(run_maintenance(arguments), ensure_ascii=False, default=str))
+            return 0
+        except (ValueError, PersistenceError) as error:
+            print(f"Обслуживание: {error}", file=sys.stderr)
+            return 2
+        except OSError:
+            print(
+                "Обслуживание: локальные данные недоступны; ничего не удаляйте вручную.",
+                file=sys.stderr,
+            )
+            return 2
     if arguments.command == "export":
         from local_transcriber.application.export import ExportCancelled, ExportError
         from local_transcriber.infrastructure.database.session import PersistenceError

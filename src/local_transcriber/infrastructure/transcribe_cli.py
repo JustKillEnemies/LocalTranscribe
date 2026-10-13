@@ -1,7 +1,6 @@
 """CLI composition root; model and database remain local."""
 
 import json
-import logging
 import sys
 import threading
 from dataclasses import asdict, replace
@@ -15,6 +14,7 @@ from local_transcriber.application.pipeline import (
 )
 from local_transcriber.application.transcript import TranscriptService
 from local_transcriber.application.worker_protocol import WorkerCommand, WorkerTask
+from local_transcriber.infrastructure.database.history_store import PostgreSQLHistoryStore
 from local_transcriber.infrastructure.database.pipeline_store import PostgreSQLPipelineStore
 from local_transcriber.infrastructure.database.session import (
     PersistenceError,
@@ -25,6 +25,7 @@ from local_transcriber.infrastructure.database.text_store import (
     PostgreSQLTranscriptStore,
     TermRepository,
 )
+from local_transcriber.infrastructure.diagnostics import DiagnosticLog
 from local_transcriber.infrastructure.faster_whisper_engine import (
     FasterWhisperConfig,
 )
@@ -33,6 +34,7 @@ from local_transcriber.infrastructure.settings import load_settings
 from local_transcriber.infrastructure.silero_segmenter import (
     SegmentationConfig,
 )
+from local_transcriber.infrastructure.temp_storage import ManagedTempFiles
 from local_transcriber.infrastructure.worker_manager import WorkerManager
 from local_transcriber.infrastructure.worker_process import WorkerIPCError
 
@@ -71,15 +73,15 @@ def run_transcription(
         },
         "runtime": {name: version(name) for name in ("faster-whisper", "ctranslate2")},
     }
-    settings.logs_dir.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(settings.logs_dir / "pipeline-errors.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    logger = logging.getLogger("local_transcriber.application.pipeline")
-    logger.addHandler(handler)
+    diagnostics = DiagnosticLog(settings.logs_dir)
     database = None
     try:
         database = make_engine(settings)
         store = PostgreSQLPipelineStore(session_factory(database))
+        ManagedTempFiles(settings.temp_dir).cleanup(
+            protected=PostgreSQLHistoryStore(session_factory(database)).protected_sources(),
+            ttl_hours=settings.temp_retention_hours,
+        )
         task = WorkerTask(
             uuid4(),
             media.path,
@@ -158,5 +160,4 @@ def run_transcription(
     finally:
         if database is not None:
             database.dispose()
-        logger.removeHandler(handler)
-        handler.close()
+        diagnostics.close()

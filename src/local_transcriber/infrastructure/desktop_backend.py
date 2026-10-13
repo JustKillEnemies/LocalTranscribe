@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from local_transcriber.application.desktop import DesktopEvent, DesktopRecord, JobChoices
 from local_transcriber.application.export import ExportService
+from local_transcriber.application.maintenance import DeleteHistory
 from local_transcriber.application.media_import import ImportMedia
 from local_transcriber.application.pipeline import PipelineConfig
 from local_transcriber.application.transcript import TranscriptService
@@ -21,6 +22,7 @@ from local_transcriber.application.worker_protocol import WorkerCommand, WorkerT
 from local_transcriber.domain.audio import PCM_BYTES_PER_SECOND
 from local_transcriber.domain.media import AudioStreamInfo, MediaInfo
 from local_transcriber.infrastructure.database.export_store import PostgreSQLExportSource
+from local_transcriber.infrastructure.database.history_store import PostgreSQLHistoryStore
 from local_transcriber.infrastructure.database.models import (
     AudioStream,
     MediaFile,
@@ -37,11 +39,13 @@ from local_transcriber.infrastructure.database.text_store import (
     PostgreSQLTranscriptStore,
     TermRepository,
 )
+from local_transcriber.infrastructure.diagnostics import AuditEvent, DiagnosticLog, audit
 from local_transcriber.infrastructure.export_files import AtomicExportWriter
 from local_transcriber.infrastructure.faster_whisper_engine import FasterWhisperConfig
 from local_transcriber.infrastructure.media import MediaInspector, media_fingerprint
 from local_transcriber.infrastructure.settings import AppSettings, load_settings
 from local_transcriber.infrastructure.silero_segmenter import SegmentationConfig
+from local_transcriber.infrastructure.temp_storage import ManagedTempFiles
 from local_transcriber.infrastructure.worker_manager import WorkerManager
 
 
@@ -56,11 +60,14 @@ class DesktopService:
         self.records: dict[UUID, DesktopRecord] = {}
         self.tickets: dict[UUID, UUID] = {}
         self.started: dict[UUID, float] = {}
+        self.diagnostics = None
 
     def _connect(self) -> None:
         if self.engine is None:
             self.engine = make_engine(self.settings)
             self.factory = session_factory(self.engine)
+        if self.diagnostics is None:
+            self.diagnostics = DiagnosticLog(self.settings.logs_dir)
 
     def _disk(self, required: int = 128 * 1024 * 1024) -> DesktopEvent:
         path = self.settings.temp_dir
@@ -164,11 +171,23 @@ class DesktopService:
                     )
                     self.records[row.id] = record
                     records.append(record)
-            return [
+            cleanup = ManagedTempFiles(self.settings.temp_dir).cleanup(
+                protected=PostgreSQLHistoryStore(self.factory).protected_sources(),
+                ttl_hours=self.settings.temp_retention_hours,
+            )
+            audit(AuditEvent.CONNECTED)
+            events = [
                 DesktopEvent("CONNECTED", self.settings),
                 DesktopEvent("RECORDS", records),
                 self._disk(),
             ]
+            if cleanup.failed:
+                events.append(
+                    DesktopEvent(
+                        "INFO", "Некоторые временные файлы не очищены; проверьте права/реестр."
+                    )
+                )
+            return events
         if command == "settings":
             if self.tickets:
                 raise ValueError("Настройки подключения можно менять после остановки очереди.")
@@ -177,6 +196,18 @@ class DesktopService:
             self.records.clear()
             return self.execute("refresh")
         self._connect()
+        if command == "delete_session":
+            if payload.media_id in self.tickets.values():
+                raise ValueError("Нельзя удалить активное/queued задание.")
+            result = DeleteHistory(
+                PostgreSQLHistoryStore(self.factory), ManagedTempFiles(self.settings.temp_dir)
+            ).execute(payload)
+            self.records.pop(payload.media_id, None)
+            audit(AuditEvent.SESSION_DELETED)
+            message = "История удалена; исходник сохранён."
+            if result.cleanup_pending:
+                message += " Очистка производных файлов требует повтора: файлы заняты/защищены."
+            return [DesktopEvent("REMOVED", payload.media_id), DesktopEvent("INFO", message)]
         if command == "import":
             disk = self._disk()
             result = ImportMedia(
@@ -429,3 +460,6 @@ class DesktopService:
         if self.engine:
             self.engine.dispose()
             self.engine = self.factory = None
+        if self.diagnostics:
+            self.diagnostics.close()
+            self.diagnostics = None
