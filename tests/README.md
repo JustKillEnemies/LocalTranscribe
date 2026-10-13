@@ -188,3 +188,19 @@ heavy imports и записей в БД. `test_export_failures_keep_versions_and
 проверяет foreign/missing version/RAW/job и защиту исходного файла в реальной DB.
 Обычный runner `check_postgresql.py --pytest-target ...` запускает только эти
 проверки вместе с нужными text/CLI unit regression, без повторного GPU/stress.
+
+## GUI, шаг 12
+
+`test_desktop.py` — 8 focused cases: Qt offscreen creation/diagnostic no DB,
+multiple files/cyrillic/drop/no audio, FSM/progress/worker error/heartbeat,
+choices/roles/CPU quality, slow service shutdown, bounded WAV, native Windows
+process shutdown regression. Background/GPU doubles явно test-only.
+Запуск: QT_QPA_PLATFORM=offscreen, pytest-qt с qt_api=pyside6; native regression
+сама выбирает windows plugin в дочернем процессе. Tests never require CUDA/model.
+
+`test_desktop_real_import_history_roles_and_worker` использует отдельную реальную
+PostgreSQL schema, настоящие ffprobe/FFmpeg и Windows spawn. Recognizer — явно
+synthetic executor и test-only model files, не доказательство CUDA inference.
+Проверяются import/history/role/RAW/READABLE/WAV/source preservation; worker при
+открытии истории не стартует. `test_worker.py` остаётся проверкой предыдущего
+IPC lifecycle; реальный FFmpeg для child cleanup должен быть доступен в PATH.

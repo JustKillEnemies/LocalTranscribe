@@ -196,3 +196,14 @@
 | ADR-074 | Paragraph alignment в READABLE metadata; старый conservative-text v1 восстанавливается из сохранённых rules/dictionary только при точном совпадении текста/digest. | Таймкоды/optional roles не требуют нового STT или изменения старых версий; unaligned MANUAL нельзя выдавать за timed transcript. |
 | ADR-075 | Temp в destination.parent + flush/fsync + exclusive rename/link; os.replace только при overwrite. | Гонки имён не затирают чужой файл; cancellation/ошибки сохраняют прежний результат и чистят собственный temp. |
 | ADR-076 | UTF-8 без BOM, format LF; synthetic golden fixtures закреплены .gitattributes eol=lf. | Byte-exact тесты форматов воспроизводимы после Windows checkout с autocrlf. |
+
+## GUI, ШАГ 12 — 2026-10-13
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-077 | DesktopBridge: bounded background actor + explicit QueuedConnection; WorkerManager создаётся лениво, один на GUI. | SQL/probe/text не блокируют event loop, GPU остаётся в spawn-process, окно открывается без среды распознавания. |
+| ADR-078 | История — последняя job на media; queued до prepare виртуальна. Resume только по saved manifest. | Ссылки прежней завершённой job не приписываются новому запуску; параметры и RAW не смешиваются. |
+| ADR-079 | Роль пользователя хранить в job manifest и speaker_label новых segments. | Изменение media role для нового запуска не перезаписывает RAW/подписи старой транскрипции. |
+| ADR-080 | Optional RecordingDecoder tee bounded PCM в WAV по decode-range в worker; место рассчитывать по длине/потокам. | Реальное сохранение промежуточного аудио без загрузки записи в RAM и без фиктивного checkbox. |
+| ADR-081 | Quit QApplication по closed backend; explicit DeferredDelete widgets перед QApplication. | Найден native abort после high-DPI закрытия при автоматическом quit-on-last-window; fix подтверждён Windows process regression. |
+| ADR-082 | PySide6 6.12.0 и pytest-qt 4.5.0 закреплены, только существующая .venv CPython 3.14. | Win x64 wheels доступны; фактические Qt/offscreen/native проверки подтверждают этот набор, Python остаётся окончательно выбранным. |

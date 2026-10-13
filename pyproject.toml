@@ -16,6 +16,7 @@ dependencies = [
     "psycopg[binary]==3.3.6",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
+    "pyside6==6.12.0",
     "python-dotenv==1.2.4",
     "sqlalchemy==2.1.4",
 ]
@@ -29,6 +30,7 @@ dev = [
     "uv>=0.12,<0.13",
     "pytest>=9,<10",
     "ruff>=0.14,<1",
+    "pytest-qt==4.5.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -36,6 +38,7 @@ packages = ["src/local_transcriber"]
 
 [tool.pytest.ini_options]
 minversion = "9.0"
+qt_api = "pyside6"
 testpaths = ["tests"]
 addopts = "-ra --strict-config --strict-markers"
 markers = [

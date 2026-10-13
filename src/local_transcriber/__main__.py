@@ -16,7 +16,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="LocalTranscriber — локальное приложение для транскрибации OBS-записей.",
         epilog=(
             "Доступны диагностика, импорт и локальная транскрибация с чекпойнтами. "
-            "Графический интерфейс появится на следующих этапах."
+            "GUI открывается командой gui; редактор и воспроизведение появятся на следующих этапах."
         ),
         allow_abbrev=False,
         color=False,
@@ -28,6 +28,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="показать версию установленного пакета и завершить работу",
     )
     commands = parser.add_subparsers(dest="command")
+    gui = commands.add_parser("gui", help="открыть графический интерфейс", color=False)
+    gui.add_argument("--env-file", type=Path)
     doctor = commands.add_parser(
         "doctor", help="проверить настройки и локальные инструменты", color=False
     )
@@ -67,6 +69,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     add_text_commands(commands)
     add_export_command(commands)
     arguments = parser.parse_args(argv)
+    if arguments.command == "gui":
+        from local_transcriber.ui.bootstrap import run_gui
+
+        return run_gui(arguments.env_file)
     if arguments.command == "export":
         from local_transcriber.application.export import ExportCancelled, ExportError
         from local_transcriber.infrastructure.database.session import PersistenceError

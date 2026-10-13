@@ -192,7 +192,12 @@ def worker_main(commands: Any, events: Any, replies: Any, executor: Any = None) 
             except PipelineCancelled:
                 control.emit("INTERRUPTED" if control.shutdown else "CANCELLED")
             except Exception as error:
-                control.emit("ERROR", f"Worker: {type(error).__name__}; доступно возобновление.")
+                message = (
+                    str(error)
+                    if isinstance(error, PipelineError)
+                    else f"Worker: {type(error).__name__}; доступно возобновление."
+                )
+                control.emit("ERROR", message[:2000])
             finally:
                 with control.condition:
                     control.store = None
@@ -228,8 +233,16 @@ def execute_task(task: WorkerTask, store: RemoteStore, control: WorkerControl, c
         )
     media = MediaInspector(task.ffprobe_path, timeout=30).inspect(task.path)
     engine = cache["engine"]
+    decoder = FFmpegMediaDecoder(task.ffmpeg_path)
+    audio = task.parameters.get("intermediate_audio", {})
+    if audio.get("enabled"):
+        from pathlib import Path
+
+        from local_transcriber.infrastructure.intermediate_audio import RecordingDecoder
+
+        decoder = RecordingDecoder(decoder, lambda: Path(audio["directory"]) / str(store.job_id))
     pipeline = TranscriptionPipeline(
-        FFmpegMediaDecoder(task.ffmpeg_path),
+        decoder,
         SileroSpeechSegmenter(SegmentationConfig(**task.vad_config)),
         engine,
         store,

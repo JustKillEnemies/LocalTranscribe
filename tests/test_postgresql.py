@@ -1076,3 +1076,149 @@ def test_export_failures_keep_versions_and_original_media(postgres, tmp_path) ->
         )
     assert original.read_bytes() == b"synthetic source sentinel"
     assert text_service.versions(jobs[0]) == saved
+
+
+def desktop_test_executor(task, store, control, cache):
+    """Real worker/decode/persistence with explicitly synthetic recognition."""
+    from dataclasses import asdict
+
+    from local_transcriber.application.pipeline import StoredSegment
+    from local_transcriber.domain.audio import DecodeRange
+    from local_transcriber.infrastructure.ffmpeg_decoder import FFmpegMediaDecoder
+    from local_transcriber.infrastructure.intermediate_audio import RecordingDecoder
+
+    media = MediaInspector(task.ffprobe_path, timeout=5).inspect(task.path)
+    signature = {
+        "pipeline_version": 1,
+        "pipeline": asdict(task.config),
+        "engine": {
+            "model_name": task.model_config["model_name"],
+            "device": "cuda",
+            "compute_type": task.model_config["compute_type"],
+            "language": "ru",
+            "beam_size": 5,
+        },
+        "parameters": task.parameters,
+        "stream_indices": list(task.indices),
+        "fingerprint": media.fingerprint,
+        "duration_ms": media.duration_ms,
+    }
+    run = store.prepare(media, task.indices, signature, task.resume)
+    for stream in run.streams:
+        store.plan(run.id, stream.id, 0, 0, media.duration_ms)
+    store.begin(run.id)
+    control.checkpoint(run.id)
+    audio = task.parameters["intermediate_audio"]
+    decoder = FFmpegMediaDecoder(task.ffmpeg_path)
+    if audio["enabled"]:
+        decoder = RecordingDecoder(decoder, lambda: Path(audio["directory"]) / str(run.id))
+    for stream in run.streams:
+        with decoder.decode(
+            media.path,
+            stream_index=stream.index,
+            decode_range=DecodeRange(0, media.duration_ms),
+            cancel=control,
+        ) as blocks:
+            for _ in blocks:
+                pass
+        store.save(
+            run.id,
+            stream.id,
+            0,
+            0,
+            media.duration_ms,
+            [StoredSegment(0, media.duration_ms, "Синтетический тест")],
+        )
+        control.emit("PROGRESS", {"completed": 1, "total": 1})
+    store.finish(run.id)
+    return run.id
+
+
+def test_desktop_real_import_history_roles_and_worker(
+    postgres, tmp_path, monkeypatch, qtbot
+) -> None:
+    import wave
+
+    from PySide6.QtCore import Qt
+    from shiboken6 import isValid
+
+    from local_transcriber.infrastructure import desktop_backend
+    from local_transcriber.infrastructure.worker_manager import WorkerManager
+    from local_transcriber.ui.bridge import DesktopBridge
+    from local_transcriber.ui.window import MainWindow
+
+    engine, factory, config = postgres
+    model = tmp_path / "models/large-v3-turbo"
+    model.mkdir(parents=True)
+    for name in ("model.bin", "config.json", "tokenizer.json"):
+        (model / name).write_bytes(b"test-only placeholder; fake executor never loads this")
+    settings = load_settings().model_copy(
+        update={"models_dir": model.parent, "model_path": model, "temp_dir": tmp_path / "work"}
+    )
+    monkeypatch.setattr(desktop_backend, "make_engine", lambda settings: engine)
+    monkeypatch.setattr(
+        desktop_backend,
+        "WorkerManager",
+        lambda store: WorkerManager(store, executor=desktop_test_executor),
+    )
+    service = desktop_backend.DesktopService(settings=settings)
+    bridge = DesktopBridge(lambda path: service)
+    window = MainWindow(bridge)
+    qtbot.addWidget(window)
+    window.show()
+    bridge.start()
+    try:
+        qtbot.waitUntil(lambda: window.connected)
+        files = []
+        for index in range(2):
+            path = tmp_path / f"Запись {index}.wav"
+            with wave.open(str(path), "wb") as output:
+                output.setparams((1, 2, 16000, 1600, "NONE", "not compressed"))
+                output.writeframes((index + 1).to_bytes(2, "little") * 1600)
+            files.append(path)
+        before = [path.read_bytes() for path in files]
+        window.import_paths(files)
+        qtbot.waitUntil(lambda: window.table.rowCount() == 2)
+        window.table.selectRow(0)
+        qtbot.waitUntil(lambda: window.start_button.isEnabled())
+        window.streams.cellWidget(0, 5).setCurrentText("Я")
+        window.keep_audio.setChecked(True)
+        qtbot.mouseClick(window.start_button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(
+            lambda: any(record.status == "COMPLETED" for record in window.records.values()),
+            timeout=20000,
+        )
+        completed = next(
+            record for record in window.records.values() if record.status == "COMPLETED"
+        )
+        assert completed.progress == 100
+        assert service.manager.pid is not None
+        with transaction(factory) as session:
+            assert session.scalar(select(func.count()).select_from(MediaFile)) == 2
+            job = session.get(TranscriptionJob, completed.job_id)
+            assert job.status == "COMPLETED"
+            assert session.scalar(select(TranscriptSegment.speaker_label)) == "Я"
+            assert {v.version_type for v in session.scalars(select(TranscriptVersion))} == {
+                "RAW",
+                "READABLE",
+            }
+        assert len(list((tmp_path / "work/intermediate").rglob("*.wav"))) == 1
+        assert [path.read_bytes() for path in files] == before
+        bridge.submit("refresh")
+        qtbot.waitUntil(lambda: not service.tickets)
+    finally:
+        bridge.request_close()
+        qtbot.waitUntil(lambda: bridge._stop.is_set())
+        assert bridge.wait_closed()
+        if isValid(window):
+            window._can_close = True
+            window.close()
+    restarted = desktop_backend.DesktopService(settings=settings)
+    try:
+        events = restarted.execute("refresh")
+        records = next(e.value for e in events if e.kind == "RECORDS")
+        assert len(records) == 2
+        assert any(r.status == "COMPLETED" and dict(r.roles).get(0) == "Я" for r in records)
+        assert restarted.manager is None  # History never starts a GPU worker.
+    finally:
+        restarted.close()

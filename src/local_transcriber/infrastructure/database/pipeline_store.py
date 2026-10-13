@@ -117,13 +117,18 @@ class PostgreSQLPipelineStore:
         end: int,
         segments: Sequence[StoredSegment],
     ) -> None:
+        with transaction(self.factory) as session:
+            row = session.get(TranscriptionJob, job)
+            audio_stream = session.get(AudioStream, stream)
+            roles = row.parameters.get("parameters", {}).get("roles", {})
+            label = roles.get(str(audio_stream.stream_index)) or None
         self.chunks.save_result(
             job,
             stream,
             index,
             start,
             end,
-            [SegmentInput(x.start_ms, x.end_ms, x.text) for x in segments],
+            [SegmentInput(x.start_ms, x.end_ms, x.text, label) for x in segments],
         )
 
     def tail(self, job: UUID, stream: UUID, before_ms: int) -> Sequence[StoredSegment]:

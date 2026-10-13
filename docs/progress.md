@@ -4,6 +4,145 @@
 
 ## Текущий шаг
 
+ШАГ 12 — PySide6: импорт, настройки и список заданий. **READY FOR STEP 13**.
+Python 3.14.4, существующая .venv; PySide6 6.12.0, pytest-qt 4.5.0.
+ШАГ 13 не начат. До реализации по прямому разрешению владельца ШАГ 11
+закоммичен и запушен: `01db477`, origin/main. Изменения шага 12 не коммитились/не пушились.
+При подготовке предыдущего коммита staged whitespace check нашёл предусмотренные
+конечные пустые строки golden: .gitattributes дополнили whitespace=-blank-at-eof
+только для synthetic .golden, сохранив их byte-exact содержимое.
+
+## Реализовано
+
+- Русский MainWindow, тёмная Fusion/QPalette тема, адаптивный splitter/scroll,
+  выбор одного/нескольких файлов и local-only drag/drop, список записей и метаданные.
+- Реальные stream_index/кодек/каналы/rate/language/title, выбор нескольких дорожек
+  по отдельности; редактируемые пользовательские роли, без угадывания говорящих.
+- Модель/ru/CUDA или CPU/compute quality/VAD/keep intermediate audio.
+  Модели только локальные; открытие GUI/истории не требует модели/GPU.
+- Импорт через существующий ImportMedia/MediaRepository, история latest job/media
+  в PostgreSQL (500 последних media), диагностика отсутствия БД и перечитывание .env.
+- БД/ffprobe/hash/disk/READABLE вне UI: bounded background actor, queued Qt signals.
+  Один lazy spawn-worker и прежняя FIFO; pause/resume/cancel, progress/error.
+- Состояния кнопок по FSM; resume по saved manifest; новый start не присваивает
+  себе UUID прошлой job. Pending до prepare виртуален, ранняя ошибка позволяет retry.
+- Время обработки обновляется GUI timer между checkpoints; errors доступны в
+  bounded диагностике. Завершение STT готовит RAW/READABLE существующим TextService.
+- Role snapshot в job manifest → speaker_label новых segments, прежний RAW неизменён.
+- Optional RecordingDecoder tee потоковых блоков в WAV по диапазонам <=15 min,
+  temp_dir/intermediate/JOB_UUID; incomplete temp удаляется, complete WAV сохраняется.
+  Free disk check учитывает длину/потоки, нет отказа только по размеру файла.
+- Async closing handshake с manager shutdown, closed→Qt quit и explicit DeferredDelete:
+  UI остаётся отзывчивым, найденный native high-DPI abort исправлен.
+- Команда gui сохраняет прежние CLI/launchers; Python/GIL/global install не менялись.
+  PySide6/pytest-qt установлены в .venv, pyproject/uv.lock обновлены, новых миграций нет.
+
+Созданы application/desktop.py, infrastructure/desktop_backend.py,
+infrastructure/intermediate_audio.py, ui/{__init__,bridge,window,bootstrap}.py,
+tests/test_desktop.py. Изменены __main__.py, infrastructure/worker_process.py,
+infrastructure/database/pipeline_store.py, pyproject.toml, uv.lock,
+tests/test_cli.py, tests/test_postgresql.py, tests/README.md, README.md,
+docs/architecture.md, decisions.md, requirements_traceability.md,
+python314_compatibility.md и progress.md. Python пути относительно src/local_transcriber/.
+
+## Реально выполненные проверки
+
+Использовались изолированная PostgreSQL 18.3 test DB на loopback/random port,
+random schemas, реальные ffprobe/FFmpeg/Windows spawn. Рабочая БД/служба не менялись,
+собственные кластеры остановлены. В GUI integration распознавание явно synthetic
+executor с test-only model files; это не объявляется реальным CUDA/STT.
+
+| Команда / проверка | Результат |
+| --- | --- |
+| uv add pyside6==6.12.0; uv add --dev pytest-qt==4.5.0 | PASS после возобновления прерванной установки; существующая .venv/Python 3.14.4. |
+| Первичный isolated runner: desktop/CLI/pipeline + 2 PG targets | PASS: 45 passed in 11.54s, без SKIP; Alembic/lint/format/diff — PASS. |
+| Последний общий runner: desktop/CLI/pipeline/worker + 2 PG targets | 46 passed, 9 failed in 14.69s: только CLI help assertions на перенос argparse между «следующих» и «этапах». Функциональные Qt/worker/pipeline/PG сценарии прошли. |
+| python -m pytest -q tests/test_cli.py tests/test_repository_audit.py::test_all_internal_document_links_resolve | PASS после исправления whitespace-normalized assertion: 29 passed in 8.07s. |
+| python -m pytest -q tests/test_desktop.py tests/test_worker.py (FFmpeg in PATH) | PASS: 17 passed in 8.44s, без SKIP. Предыдущий focused run пропускал real FFmpeg child test, повтор устранил SKIP. |
+| Последний python -m pytest -q tests/test_desktop.py после GUI timer | PASS: 8 passed in 3.14s, включая native shutdown regression. |
+| Real PG GUI/import/role/RAW/READABLE/WAV/history | PASS: настоящая DB и FFmpeg/spawn, source bytes preserved, history после shutdown, worker не стартует при загрузке истории. |
+| Real PG pipeline checkpoints/resume | PASS: роль совместима с существующей атомарной схемой/checkpoints. |
+| Alembic upgrade/repeat/check/downgrade/upgrade/current | PASS в первом успешном runner, head 0003_audio_timeline, No new upgrade operations detected. Схема впоследствии не менялась. |
+| Native Windows + visual inspection screenshots | PASS после fix: DPR 1.25 и 1.5, visible window, dark #1c2028, size 1180×760, exit 0; 64/62 heartbeat ticks за smoke. |
+| uv run ruff check . / uv run ruff format --check . / git diff --check | PASS после всех правок: All checks passed, 81 files already formatted, whitespace ошибок нет. |
+| uv lock --check | PASS: Resolved 58 packages. |
+| Внутренние ссылки после progress / gitignore / secret patterns | PASS: 1 passed in 0.05s; .env и native artifacts игнорируются; указанных credential patterns в новых файлах не найдено. |
+| Полный regression/новый реальный CUDA inference/3-hour stress | NOT RUN: целевые сценарии текущего этапа, GPU не требовалась; hardware/STT подтверждены прежними этапами. |
+| Ручная пользовательская транскрибация через GUI | NOT RUN: native окно и снимки проверены, функциональная транскрибация здесь использовала mock/synthetic recognizer. |
+
+В целевом наборе 55 разных сценариев: desktop 8, CLI 28, pipeline 8, worker 9,
+PG 2. После исправлений все они прошли в соответствующих прогонах, но последний
+общий runner не выдаётся за exit 0: CLI-исправление проверено отдельным набором,
+без повторения уже прошедших DB/worker tests. Дополнительно прошла проверка ссылок.
+
+Фактические команды из корня:
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'
+$env:PYTEST_QT_API = 'pyside6'
+$env:PATH = (Join-Path (Get-Location) 'tmp/step04-tools/ffmpeg-9.0.2-essentials_build/bin') + ';' + $env:PATH
+.\.venv\Scripts\python.exe scripts/check_postgresql.py --pytest-target tests/test_desktop.py --pytest-target tests/test_cli.py --pytest-target tests/test_pipeline.py --pytest-target tests/test_worker.py --pytest-target tests/test_postgresql.py::test_desktop_real_import_history_roles_and_worker --pytest-target tests/test_postgresql.py::test_pipeline_checkpoints_and_resume
+.\.venv\Scripts\python.exe -m pytest -q tests/test_cli.py tests/test_repository_audit.py::test_all_internal_document_links_resolve
+.\.venv\Scripts\python.exe -m pytest -q tests/test_desktop.py tests/test_worker.py
+.\.venv\Scripts\python.exe -m pytest -q tests/test_desktop.py
+```
+
+PYTEST_DEBUG_TEMPROOT задавался уникальным tmp/ каталогом для каждого focused run.
+Успешный initial runner: tmp/step03-pg-cf68faefcfad405085181ecaa11045fc/checks.json.
+Последний общий runner с CLI-only failures:
+tmp/step03-pg-846a076848d142bab3f316e8f2f9cc9b/checks.json.
+Native screenshots/metrics: tmp/step12-native/scale125.{png,json}, scale150.{png,json}.
+Временный smoke helper удалён; постоянная native regression находится в test_desktop.py.
+Все артефакты игнорируются Git, пользовательские записи не использовались.
+
+## Найденные и исправленные ошибки
+
+- Прерванная установка PySide6 завершена повторно без пересоздания среды.
+- pytest-qt teardown удалял окно до fixture close; cleanup проверяет shiboken isValid.
+- Native high-DPI smoke initially abort после capture/close: исправлен lifecycle
+  QApplication/worker/widgets; bare Qt не падал, регрессия подтверждена новым процессом.
+- Масштаб учитывает базовый Windows DPI: конечный DPR проверен как 1.25/1.5,
+  а не только относительный QT_SCALE_FACTOR.
+- CLI help test нормализует whitespace; переносы argparse не считаются поломкой CLI.
+- Новый start очищает старый job_id/manifest; ранняя ошибка без DB job даёт retry,
+  а не фиктивный resume прошлого задания.
+
+## Критерии приёмки и ограничения
+
+- [x] Русский тёмный GUI, import/multiple/drop/metadata/streams/roles/STT settings.
+- [x] Queue/progress/error/FSM buttons, UI heartbeat при mock STT и медленном backend.
+- [x] Окно открывается без GPU и при отсутствии БД показывает диагностическое состояние.
+- [x] Real PG/FFmpeg/spawn flow, role/versions/WAV/history, source preservation.
+- [x] Native Windows DPI 125–150%, screenshots inspection, shutdown regression.
+- [x] Целевые проверки исправлены, документация/матрица/ADR обновлены.
+
+Ограничения: one owner manager/app, история последней job для 500 media;
+неисполненные pending commands/виртуальная очередь не сохраняются после выхода.
+Роли вручную; mixing/диаризация не реализованы. Model download только отдельным
+согласованным действием, CPU/GPU inference quality повторно не измерялась.
+System settings берутся из существующего .env/AppSettings, отдельного GUI редактора
+секретов нет. Retained WAV имеют overlap и сохраняются отдельно, cleanup policy — 14.
+Редактор/поиск/проигрывание/экспорт из окна результатов — 13, не реализованы здесь.
+
+Пользовательский checklist: `uv run python -m local_transcriber gui --env-file PATH`,
+добавить несколько файлов, назначить роли, проверить модель локально, запустить;
+pause→подтверждение→resume/cancel; закрыть активное окно и затем resume из истории.
+При отсутствии БД настройте .env/миграции и обновите подключение. Пользовательские
+медиа не изменяются, сохранение промежуточного аудио включается явно.
+
+Блокирующих проблем текущего этапа нет. Следующий этап — **ШАГ 13: PySide6,
+редактор, поиск и воспроизведение**, только после нового разрешения владельца.
+
+<details>
+<summary>История ШАГА 11 и предыдущих этапов</summary>
+
+
+# Состояние проекта
+
+Дата: 2026-10-13.
+
+## Текущий шаг
+
 ШАГ 11 — экспорт TXT, SRT, JSON и Markdown. **READY FOR STEP 12**.
 Python 3.14.4, существующая .venv. ШАГ 12 не начат.
 До начала шага 11 по прямому разрешению владельца закоммичен/запушен ШАГ 10:
@@ -1255,6 +1394,8 @@ dev-окружение не пересоздавать. Runtime-библиоте
 - [x] Реальные результаты проверок и ограничения отражены в этом документе.
 - [x] Бизнес-логика и будущие этапы не реализованы; на этапе подготовки
   commit и push не выполнялись. Разрешение на публикацию получено отдельно.
+
+</details>
 
 </details>
 

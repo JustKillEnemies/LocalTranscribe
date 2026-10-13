@@ -76,7 +76,7 @@ PySide6 требует соответствующих компонентов и 
 | Пара torch/torchaudio | Отдельно проверены [torch 2.9.1](https://pypi.org/pypi/torch/2.9.1/json) и [torchaudio 2.9.1](https://pypi.org/pypi/torchaudio/2.9.1/json): оба имеют cp314 Windows x64 wheels; torchaudio требует torch==2.9.1 и проходит <2.10. Это кандидат при необходимости audio extras. | В 07 проверить актуальность API и выбранную CPU/CUDA сборку, не смешивать произвольные версии. Python остаётся 3.14. |
 | ONNX Runtime | CPU wheel доступен. onnxruntime-gpu не требуется для этой проверки и не проверен; пакеты CPU/GPU нельзя считать взаимозаменяемыми. | В 07 проверить загрузку конкретной Silero ONNX-модели, CPUExecutionProvider и результаты; GPU provider проверять отдельно только при принятом решении. |
 | Влияние VAD на GPU-память | Использование torch для VAD не означает обязательную загрузку VAD в CUDA; владение GPU у одного worker. | В 06–07 выбрать размещение VAD, измерить RSS/VRAM, исключить дублирование модели и проверить fallback FR-05/NFR-02. |
-| Упаковка и GUI | Теги wheels подтверждены, приложение ещё не реализовано. | В 12–13 GUI и воспроизведение; в 16 PyInstaller/VC++/Qt DLL, чистый Windows-профиль и offline smoke. |
+| Упаковка и GUI | Теги wheels подтверждены; GUI описан ниже, упаковка остаётся этапом 16. | В 12–13 GUI и воспроизведение; в 16 PyInstaller/VC++/Qt DLL, чистый Windows-профиль и offline smoke. |
 
 Эта исходная проверка шага 00 не включала ML/CUDA runtime. Фактическая проверка
 шага 06 приведена ниже; Python 3.14 менять не потребовалось.
@@ -102,3 +102,15 @@ SQLAlchemy 2.1.4, Alembic 1.20.0, psycopg и psycopg-binary 3.3.6 установ
 транзакции, constraints и миграционный цикл проверены с PostgreSQL 18.3.
 Это подтверждает только выбранную persistence цепочку, не ML/CUDA/GUI.
 Команды и результаты — [progress.md](progress.md).
+
+## PySide6 / pytest-qt
+
+Закреплён PySide6 6.12.0 (Essentials/Addons/Shiboken из того же графа) и pytest-qt
+4.5.0 в существующей .venv. PyPI указывает Python >=3.10,<3.16 и win_amd64 abi3
+wheel: [PySide6 6.12.0](https://pypi.org/project/PySide6/6.12.0/).
+Настройка qt_api=pyside6 соответствует
+[pytest-qt](https://pypi.org/project/pytest-qt/4.5.0/);
+межпоточные queued signals соответствуют
+[Qt threading](https://doc.qt.io/qtforpython-6/PySide6/QtCore/QThread.html).
+Фактические native/offscreen результаты и обнаруженный/fixed shutdown abort —
+только в progress.md. Python 3.14/GIL не менялся, CUDA wheels не переустанавливались.

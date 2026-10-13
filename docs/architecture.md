@@ -2,7 +2,7 @@
 
 Это целевая архитектура. Текущий пакет реализует справку, версию, единый запуск,
 настройки и диагностику среды, правила состояний Domain, PostgreSQL-схему и
-транзакционные репозитории Infrastructure. Медиа, STT/VAD, pipeline/worker и текстовые сценарии описаны ниже; GUI запланирован, экспорт описан ниже. Решения связаны с
+транзакционные репозитории Infrastructure. Медиа, STT/VAD, pipeline/worker и текстовые сценарии описаны ниже; GUI и экспорт описаны ниже. Решения связаны с
 [требованиями](requirements.md) и [журналом решений](decisions.md).
 Порядок реализации — [implementation_plan.md](implementation_plan.md);
 актуальные статусы находятся только в [progress.md](progress.md).
@@ -487,3 +487,49 @@ Service запрещает destination, совпадающий с источни
 `export_cli` только связывает AppSettings/PostgreSQL/Service/Writer; импорты и
 сценарий экспорта не загружают движок/модель. Фрагменты файлов/JSON пишутся постепенно;
 текстовый snapshot/segments материализуются как в шаге 10, медиа/PCM не читаются.
+
+## Desktop GUI (границы шага 12)
+
+Application desktop DTO: immutable DesktopRecord/DesktopEvent/JobChoices и
+доступность действий по Domain FSM. `ui.window.MainWindow` содержит только
+представление, пользовательский ввод и состояния виджетов; Qt объекты/SQLAlchemy
+Session не пересекают процессы. GUI открывается командой gui через lazy bootstrap,
+существующие CLI и launchers сохраняются. Тёмная тема — Fusion/QPalette, scroll
+для панели настроек, размеры 1180×760 logical pixels, minimum 880×600.
+
+DesktopBridge — bounded command actor (64 команды) с собственным thread;
+execute/poll конкретного infrastructure.DesktopService проходят вне event loop.
+WorkerManager сохраняет прежнюю bounded FIFO (16), один spawn-worker/model cache.
+Qt signals явно QueuedConnection; widgets меняются только в main thread. Driver
+БД/ffprobe/model fingerprint/disk check и генерация READABLE не исполняются в UI.
+Worker создаётся лениво при первом запуске задания, окно/история не загружают GPU.
+
+DesktopService использует AppSettings и существующие ImportMedia/MediaRepository,
+pipeline store/worker/TextService. В истории — последний DB job для каждой из
+500 последних media; queued состояние до prepare виртуальное и не выдаётся за
+сохранённый DB job. Новое задание очищает ссылку на прежний job; ошибка до prepare
+оставляет запись готовой к повторному запуску. Resume использует полный saved
+manifest/engine/VAD/границы; changing current controls не меняет прежний RAW.
+Переподключение/.env change допускается только без active/pending tickets.
+
+Пользовательские роли сохраняются в media audio_streams и immutable job manifest;
+PipelineStore добавляет speaker_label к новым сегментам из manifest, а не из
+изменяемой позднее подписи media. Существующие RAW/роли не переименовываются.
+GUI допускает только раздельную обработку выбранных stream_index; смешивание,
+результаты/редактор/воспроизведение требуют своих сценариев следующих шагов.
+
+RecordingDecoder — optional Infrastructure decorator MediaDecoder. Никакой
+передачи PCM между процессами: tee блоков в WAV происходит в worker, по одному
+decode-range <=15 min. Root directory — temp_dir/intermediate/job_id, random file
+suffix, source-ms interval в имени, temp удаляется при incomplete/cancel. Полностью
+декодированные диапазоны сохраняются как WAV по явной настройке пользователя;
+они могут перекрываться. Disk estimate = PCM duration×selected streams×1.05,
+minimum reserve 128 MiB; это проверка наличия места, не отказ по размеру исходника.
+
+Closing handshake: closeEvent откладывает закрытие, bridge получает stop,
+background backend.shutdown останавливает manager и DB, closed сигнал закрывает
+окно и завершает QApplication. Quit-on-last-window отключён, DeferredDelete
+доставляется явно до уничтожения QApplication. Это устраняет native Windows abort
+при high-DPI закрытии; регрессия проверяется новым процессом, а не только qtbot.
+Ошибки доступны в bounded diagnostic view и строке записи; PipelineError передаётся
+из worker как безопасное подробное сообщение, неизвестные исключения — только тип.
