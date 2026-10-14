@@ -31,6 +31,7 @@ dev = [
     "pytest>=9,<10",
     "ruff>=0.14,<1",
     "pytest-qt==4.5.0",
+    "psutil>=7.2,<8",
 ]
 
 [tool.hatch.build.targets.wheel]

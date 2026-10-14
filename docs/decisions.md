@@ -229,3 +229,20 @@
 | ADR-092 | Файлы чистить после DB commit, cleanup_pending + explicit UUID retry, общий словарь/exports сохранять. | Нет ложной атомарности DB+FS и тихой потери файлов; повтор работает после удаления DB job. |
 | ADR-093 | Local-only protocol whitelist, secret-free child env, scoped Qt debug/message suppression; actual Qt native regression. | Устраняет наследование DB credentials/metadata dumps, блокирует nested network processing без внешних API. |
 | ADR-094 | Confirmation binds media UUID до диалога; default No, separate derived opt-in; terminal events приоритетнее progress. | Async UI не удаляет соседнюю запись, overload не теряет terminal ack в bounded GUI/CLI workflow. |
+
+## Нагрузочные испытания, ШАГ 15 — 2026-10-14
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-095 | Общий prepare_task для CLI/harness; cold real GPU worker, fallback/download off только для benchmark. | Сохраняет CLI interfaces и одну resume signature, alternate runtime не маскирует измерение. |
+| ADR-096 | Benchmark только separate test DB/random schema с Alembic; owned cluster launcher переиспользуется. | Рабочая БД и службы не меняются; сохранённые локальные результаты доступны после failure. |
+| ADR-097 | Sampled RSS/whole-device VRAM с явными scope/baseline/ошибками; streamed numeric JSONL, HEAD + SHA-256 source snapshot включая untracked. | Не выдаёт чужую VRAM за process allocation, не копит 3h samples в RAM и не раскрывает текст. |
+| ADR-098 | Exact Levenshtein по RAW и независимому per-track reference, явный NFC/casefold/whitespace protocol с compute budget. | Нет придуманных WER/CER, corrected text или silent normalization changes; согласование приёмочного набора отдельно. |
+| ADR-099 | Crash только owned current worker после committed progress; resume same job и compare immutable checkpoints. | Проверка реальной персистентности/идемпотентности без уничтожения пользовательских процессов/медиа. |
+
+## Публичная quality оценка, дополнение ШАГА 15 — 2026-10-14
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-100 | FLEURS ru_ru test pinned revision, первые 32 archive-order WAV, raw_transcription references, CC BY attribution/provenance+hashes; stdlib streamed download без remote-code/новых ML deps. | Независимые публичные эталоны вместо ручной расшифровки пользователя; нет отбора удобных результатов, веса/данные остаются локально. |
+| ADR-101 | Сохранить frozen primary punctuation-sensitive protocol; отдельно заранее объявить Unicode punctuation-space secondary, считать micro errors/reference units и включать все выбранные cases. | Не подменяет основной результат улучшенной нормализацией/mean percentages, обнаруживает изменённые эталоны/RAW и неполную оценку. |

@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "id": "five-minutes",
+      "path": "C:/private/russian-obs.mp4",
+      "indices": [
+        1
+      ],
+      "end_ms": 300000
+    },
+    {
+      "id": "one-hour",
+      "path": "C:/private/russian-obs.mp4",
+      "indices": [
+        1
+      ],
+      "end_ms": 3600000
+    },
+    {
+      "id": "hour-crash-resume",
+      "path": "C:/private/russian-obs.mp4",
+      "indices": [
+        1
+      ],
+      "end_ms": 3600000,
+      "crash_after_chunks": 6
+    },
+    {
+      "id": "long-obs",
+      "path": "C:/private/three-hours-two-tracks.mkv",
+      "indices": [
+        1,
+        2
+      ],
+      "profile": "Human-reviewed Russian technical speech, silence and noise",
+      "normalization": "nfc-casefold-whitespace-v1",
+      "references": {
+        "1": "C:/private/track1-reference.txt",
+        "2": "C:/private/track2-reference.txt"
+      }
+    }
+  ],
+  "timeout_seconds": 14400
+}

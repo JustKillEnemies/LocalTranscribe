@@ -1,8 +1,217 @@
 # Состояние проекта
 
-Дата: 2026-10-13.
+Дата: 2026-10-14.
 
 ## Текущий шаг
+
+ШАГ 15 — нагрузочные и качественные E2E тесты на реальном ПК.
+**IMPLEMENTED / PUBLIC QUALITY PASS / VERIFICATION PARTIAL — BLOCKED FOR STEP 16**.
+Harness/длинные OBS прогоны выполнены. Эталонная публичная quality проверка
+FLEURS ru_ru выполнена, primary corpus WER ≤15% достигнут. Не закрыты остальные
+исходные gates: ≥3h/original OBS two-track MKV и ручной GUI/playback/quality review.
+Пользователь подтвердил, что доступен только 95min MP4, и разрешил найти публичные
+эталоны вместо ручной расшифровки собственного видео. Отсутствующие scenarios
+не объявляются проверенными; ШАГ 16 в этом запросе не разрешён/не начат.
+По запросу владельца ШАГ 14 закоммичен и запушен: `a9b706e`, origin/main.
+После push рабочее дерево было чистым. Разрешение следующего этапа относится
+к ШАГУ 15, не снимает долг ручной original OBS MKV/MP4 приёмки ШАГА 13.
+CPython 3.14.4, существующая .venv; добавлена только dev psutil 7.2.2.
+Модели/CUDA/глобальный Python/системные службы не устанавливались и не изменялись.
+ШАГ 16 не начат. Изменения ШАГА 15 не коммитились/не пушились.
+
+## Дополнение ШАГА 15: публичная оценка качества — 2026-10-14
+
+По запросу владельца самостоятельно найден и скачан Google FLEURS ru_ru test,
+CC BY 4.0, revision 70bb2e84b976b7e960aa89f1c648e09c59f894dd. Первые 32 WAV по порядку
+pinned test archive зафиксированы до inference, 31 уникальный sentence ID,
+406.620 s / 24.82 MiB WAV. Эталоны — raw_transcription поставщика, не Whisper
+output и не MANUAL. Модель и production pipeline не менялись, новые зависимости
+не устанавливались. Исходные пользовательские записи не отправлялись в сеть.
+
+- **PASS**: 32/32 real cuda float16 GPU cases с отдельной PostgreSQL 18.3/random
+  schema, прежним VAD и RAW/READABLE/4 exports. Ошибок recognition infrastructure/
+  RSS/VRAM sampler нет; own cluster остановлен. Cold-worker wall sum 159.777 s.
+- **PASS, primary corpus quality goal на этой подвыборке**:
+  WER **14.1123%** (93/659),
+  CER **3.1564%** (151/4784).
+  Прежний nfc-casefold-whitespace-v1 сохраняет пунктуацию; corpus WER ≤15%.
+- Дополнительный заранее объявленный punctuation-space protocol:
+  WER **7.9104%** (53/670),
+  CER **2.4364%** (114/4679).
+  Primary не менялся. Micro-average по сумме errors/reference units, не среднее
+  индивидуальных процентов. 0 failure cases исключено из denominator.
+- **PASS**: `scripts/check_postgresql.py --pytest-target tests/test_public_benchmark.py
+  --pytest-target tests/test_benchmark.py --pytest-target tests/test_repository_audit.py
+  --benchmark-manifest tmp/fleurs-ru-test-32/manifest.json`: **96 passed, 6.96 s,
+  0 skipped**; python 3.14.4, Alembic upgrade/repeat/check/downgrade/base/upgrade/
+  current 0003, Ruff check/format (101 files), git diff --check — PASS.
+- **PASS**: `scripts/public_benchmark.py score tmp/fleurs-ru-test-32
+  tmp/step03-pg-95b78fa5209444edbdb01cc1d67067a1/benchmark/benchmark.json`:
+  проверены SHA-256 каждого audio/reference и equality exported RAW vs in-pipeline
+  quality; сохранены strict/secondary corpus counts и provenance digest.
+- Артефакты: tmp/fleurs-ru-test-32/{manifest,provenance,test.tsv,*.wav,*.txt};
+  tmp/step03-pg-95b78fa5209444edbdb01cc1d67067a1/{checks.json,benchmark/quality-summary.json}.
+  Всё остаётся локально и ignored, источники/модели/рабочая БД не изменены.
+- Созданы infrastructure/public_benchmark.py, scripts/public_benchmark.py,
+  tests/test_public_benchmark.py; обновлены benchmark/progress/матрица/ADR/test docs.
+  Предыдущие 18 незакоммиченных файлов ШАГА 15 сохранены. Commit/push не выполнялись.
+
+Ограничения: это 32 коротких read-speech utterances, не весь test corpus и не
+диалог с HR/OBS noise/technical terms. Индивидуальный WER до 61.54%, поэтому
+средний <15% не обещает точность каждой реплики. Не утверждается, что публичные
+данные не встречались при pretraining Whisper; самостоятельно эталоны не
+прослушивались заново. Ручная расшифровка собственного видео для этой проверки
+больше не требуется. Остальные gates текущего исходного ТЗ остаются NOT TESTED/
+NOT RUN, не снимаются молча. Методы/источники — [benchmark.md](benchmark.md).
+
+Финальный повтор после обновления документации:
+`uv run pytest -q tests/test_public_benchmark.py tests/test_benchmark.py
+ tests/test_repository_audit.py` — **96 passed, 3.05 s, 0 skipped**;
+Ruff check/format (101 files), git diff --check — PASS. Git check-ignore
+подтвердил исключение manifest/provenance/quality-summary и исходных public media.
+Новая full-suite regression в этом дополнении не запускалась: production код
+не менялся; прежние 431 passed/2 skipped относятся к предыдущему полному прогону.
+
+## Реализовано в ШАГЕ 15
+
+- Reproducible JSON manifest/cases, отдельный dev launcher и расширение owned
+  PostgreSQL test runner; shared prepare_task с CLI, real cold GPU worker,
+  local-only модели, fallback/download off для измерений.
+- Wall/audio duration/RTF, sampled process-tree RSS и whole-device VRAM с baseline,
+  streamed JSONL events/resources, environment/model/source fingerprints,
+  chunk/segment counts/error classes. Private owned output, original untouched.
+- Real PG → RAW/READABLE → TXT/SRT/JSON/MD, chunk coverage/таймкоды; own worker
+  kill после committed midpoint, INTERRUPTED → restart/resume, compare checkpoint
+  identities/digests/attempt/completion и отсутствие duplicate chunk keys.
+- RAW per-track WER/CER только с независимым reference и явной нормализацией;
+  empty/malformed/budget scenarios не подменяются фиктивными оценками.
+- [Протокол и измерения](benchmark.md), [manifest example](benchmark.example.json),
+  architecture/ADR/матрица/README/test instructions.
+
+## Проверки ШАГА 15
+
+- Initial focused uv pytest: 16 passed, 25 setup errors из-за недоступного
+  системного pytest-of-jke. Повтор с новой собственной PYTEST_DEBUG_TEMPROOT:
+  `uv run pytest -q tests/test_benchmark.py tests/test_cli.py` — **41 passed, 6.30 s**.
+- `scripts/check_postgresql.py --benchmark-manifest tmp/step15-manifest.json`
+  с PYTEST_REQUIRE_CUDA=1/реальным VAD fixture: **429 passed, 2 skipped, 67.17 s**;
+  отдельно database unit **83 passed, 0.94 s**, real PG **38 passed, 2 skipped, 29.15 s**.
+  SKIP: старые direct-hour/worker smoke без своих explicit environment paths;
+  новые real GPU gates выполняются через harness, skip не объявляется PASS.
+- Первая orchestration остановилась до benchmark на Ruff-format после добавления
+  type hints во время проверок; формат исправлен. Own cluster остановлен.
+  Артефакт: tmp/step03-pg-8a4b957d01014e2181a64110c41f3102/checks.json.
+- Повтор после исправления: `scripts/check_postgresql.py --pytest-target
+  tests/test_benchmark.py --pytest-target tests/test_cli.py --pytest-target
+  tests/test_postgresql.py --benchmark-manifest tmp/step15-manifest.json`:
+  **79 passed, 2 skipped, 33.08 s**; Alembic upgrade/repeat/check/downgrade/base/
+  upgrade/current 0003_audio_timeline, Ruff и git diff --check — PASS.
+- Real benchmark выполняется в отдельном PostgreSQL 18.3/random schema:
+  tmp/step03-pg-e0b3464ae42644e1bb1bf338fc68cb3d/benchmark/benchmark.json.
+  На момент записи первый 5 min prefix — wall 20.802 s, RTF 0.069341,
+  RSS 1812992000 B, whole-GPU VRAM 4552916992 B (baseline 2073034752 B),
+  1 chunk/481 segments/35 samples, timeline/RAW/READABLE/4 exports — PASS.
+  Исходный набор затем завершился: hour 209.777 s/RTF 0.058272,
+  crash/resume 201.841 s/RTF 0.056067, EOF 13.1 s source за 4.810 s — PASS.
+  Crash после 6/12 chunks: INTERRUPTED → restart/resume, прежние checkpoints
+  неизменны, финально 12 chunks/4652 segments, без дублей. Source ≥3h отсутствует:
+  соответствующий case — NOT TESTED (не удлинялся synthetic looping).
+
+- При ревизии воспроизводимости обнаружено: Git HEAD/diff не включал новые
+  untracked modules. Добавлен SHA-256 source snapshot (без .env) и regression test;
+  sampler thread/output failure теперь сообщает FAIL, не перезаписывает файл и
+  не подменяет отсутствующие метрики. Private DiagnosticLog lifecycle соблюдён.
+- Финальная полная проверка `scripts/check_postgresql.py --pytest-target tests
+  --benchmark-manifest tmp/step15-final-manifest.json` — **431 passed, 2 skipped,
+  64.17 s**. По pytest markers: **380 not integration/gpu passed; 50 integration
+  passed + 2 skipped; 1 actual CUDA runtime passed**. Real PostgreSQL 18.3,
+  FFmpeg/VAD/native Qt/Windows worker regressions включены. Старые 2 opt-in GPU
+  smoke не запускались, новый harness отдельно выполнил реальные inference gates.
+  Final 5min case: 19.384 s, RTF 0.064614, 1 chunk/481 segments — PASS.
+  Alembic upgrade/repeat/check/downgrade/base/upgrade/head 0003, Ruff check,
+  Ruff format (98 files), git diff --check — PASS; own cluster остановлен.
+  Артефакт: tmp/step03-pg-d95d0c94f91b41e794da45a23c2e99e2/checks.json.
+- Владелец подтвердил имеющийся файл 2026-08-30 16-04-02.mp4 (~95 min),
+  более длинных нет. Дополнительный full-source GPU E2E:
+  `scripts/check_postgresql.py --pytest-target tests/test_benchmark.py
+  --benchmark-manifest tmp/step15-full95-manifest.json` — **15 passed, 0 skipped,
+  0.97 s** до GPU; настоящий pipeline обработал 5717 s / 4.405 GB целиком за
+  **322.383 s**, RTF **0.056390**,
+  20 chunks/11943 segments,
+  sampled RSS 1848311808 B,
+  whole-device VRAM 4652531712 B — **PASS**.
+  EOF/coverage/timeline/RAW/READABLE/4 exports проверены; memory sampler errors=0,
+  original fingerprint не изменился, системная служба/рабочая БД не изменялись.
+  Alembic/Ruff/diff и stop owned cluster — PASS.
+  Артефакт: tmp/step03-pg-57bb19ade00a4f18aaae1b5c063db5e4/checks.json.
+- Сводка реальных hardware cases: **6 PASS**, отдельный ≥3h case **NOT TESTED**;
+  quality WER/CER без эталона **NOT RUN**. Цель 60 min ≤15 min достигнута на одном
+  measured prefix, не обещается на иных источниках/моделях/профилях.
+
+- После финального заполнения документации: `uv run pytest -q
+  tests/test_repository_audit.py` — **73 passed, 1.88 s**; `uv run ruff check .`,
+  `uv run ruff format --check .` (98 files), `git diff --check` — **PASS**.
+  `uv lock --check` — **PASS**, 59 packages. Internal links/обязательные документы
+  согласованы; known credential-prefix scan новых/изменённых UTF-8 файлов — 0
+  matches (ограниченная проверка, не universal secret detector).
+  `git check-ignore` подтверждает .env/.venv/tmp manifests/models/recordings/
+  transcripts/logs. `git diff --exit-code` подтверждает сохранность AGENTS,
+  ORIGINAL_TZ/requirements/implementation_plan/migrations/main.py/.gitignore.
+  После всех hardware runs отдельно пересчитаны исходные fingerprints пяти cases:
+  **PASS**, исходники не изменены. `main...origin/main`: 0/0, HEAD a9b706e;
+  только 18 файлов ШАГА 15 остаются изменёнными/новыми, собственные helpers удалены.
+
+## Не выполнено / ограничения
+
+- В Videos максимальная запись 5717 s (~95 min), все 22 MP4 с одной дорожкой.
+  Original MKV >1GB с двумя OBS audio streams и ≥3h записи не предоставлены:
+  NOT TESTED. Real >1GB MP4 проверен, remux/дублирование дорожки не выдавались
+  за отсутствующую original OBS fixture.
+- Для original OBS записей независимый эталон/ручные профили отсутствуют:
+  WER/CER на них NOT RUN. Публичная FLEURS quality проверка теперь выполнена выше;
+  NOT RUN больше не относится ко всей оценке ASR.
+  Тишина/границы unit/integration (включая реальный Silero silence/partial frame)
+  не заменяют прослушивание реальных speech spans. Noise/technical terms/omissions/
+  false repeats по эталону и подписанные человеческие профили — NOT RUN.
+- Manual original OBS playback ШАГА 13 — NOT RUN. Общая готовность MVP не заявляется.
+- RSS/VRAM sampled, VRAM включает посторонние приложения. Нет раздельного stage
+  profiling, bottleneck не приписывается компоненту без измерений; оптимизации нет.
+
+## Созданные и изменённые файлы ШАГА 15
+
+Созданы: scripts/benchmark.py; src/local_transcriber/infrastructure/benchmark.py,
+benchmark_resources.py, benchmark_quality.py, transcription_task.py;
+tests/test_benchmark.py; docs/benchmark.md, docs/benchmark.example.json.
+Изменены: infrastructure/transcribe_cli.py (общая task composition, CLI preserved),
+scripts/check_postgresql.py, pyproject.toml/uv.lock (только dev psutil), README.md,
+tests/README.md; docs/architecture.md, decisions.md (ADR-095–099), progress.md,
+requirements_traceability.md. Original ТЗ, нормализованные requirements, migrations,
+src/main.py, GUI/Domain/pipeline алгоритмы не пересоздавались.
+
+## Ручной чек-лист оставшейся приёмки
+
+- Предоставить реальную ≥3h запись и original OBS MKV >1GB с двумя независимыми
+  audio streams; заполнить local manifest и выполнить тот же harness.
+- Согласовать normalization и независимый human reference по дорожке/диапазону;
+  отдельно чистая речь (WER цель ≤15%), шум, терминология, тишина/повторы/пропуски.
+- Прослушать границы chunks/последнюю речь и сравнить таймкоды, подписать reviewer/
+  date/case/profile, закрыть original OBS playback MKV/MP4 долг ШАГА 13.
+- Результаты хранить локально; не коммитить записи/эталоны/экспорты/.env/cluster.
+
+## Критерии готовности и следующий этап
+
+ШАГ 15 будет принят после фактических hardware measurements, crash/resume,
+длинной ≥3h/original MKV/two-track и ручной quality/reference проверки.
+Недостающие gates не считаются пройденными. Следующий этап — ШАГ 16 только
+по отдельному разрешению после приёмки либо явного принятия оставшегося долга.
+
+---
+
+# Состояние проекта
+
+Дата: 2026-10-13.
+
+## Архив: ШАГ 14 (состояние на момент сдачи)
 
 ШАГ 14 — устойчивость, приватность и журналирование.
 **READY FOR STEP 15** по реализации и проверкам этого этапа; ШАГ 15 не начат.

@@ -3,17 +3,15 @@
 import json
 import sys
 import threading
-from dataclasses import asdict, replace
-from importlib.metadata import version
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from local_transcriber.application.pipeline import (
     PipelineConfig,
     PipelineError,
 )
 from local_transcriber.application.transcript import TranscriptService
-from local_transcriber.application.worker_protocol import WorkerCommand, WorkerTask
+from local_transcriber.application.worker_protocol import WorkerCommand
 from local_transcriber.infrastructure.database.history_store import PostgreSQLHistoryStore
 from local_transcriber.infrastructure.database.pipeline_store import PostgreSQLPipelineStore
 from local_transcriber.infrastructure.database.session import (
@@ -26,15 +24,10 @@ from local_transcriber.infrastructure.database.text_store import (
     TermRepository,
 )
 from local_transcriber.infrastructure.diagnostics import DiagnosticLog
-from local_transcriber.infrastructure.faster_whisper_engine import (
-    FasterWhisperConfig,
-)
-from local_transcriber.infrastructure.media import MediaInspector, media_fingerprint
+from local_transcriber.infrastructure.media import MediaInspector
 from local_transcriber.infrastructure.settings import load_settings
-from local_transcriber.infrastructure.silero_segmenter import (
-    SegmentationConfig,
-)
 from local_transcriber.infrastructure.temp_storage import ManagedTempFiles
+from local_transcriber.infrastructure.transcription_task import prepare_task
 from local_transcriber.infrastructure.worker_manager import WorkerManager
 from local_transcriber.infrastructure.worker_process import WorkerIPCError
 
@@ -53,26 +46,7 @@ def run_transcription(
     settings = load_settings(env_file)
     media = MediaInspector(settings.ffprobe_path, timeout=settings.probe_timeout).inspect(path)
     config = PipelineConfig(chunk_ms, overlap_ms, end_ms)
-    if not set(indices) <= {stream.stream_index for stream in media.audio_streams}:
-        raise PipelineError("Выбранная аудиодорожка отсутствует.")
-    model_cfg = replace(FasterWhisperConfig.from_settings(settings), word_timestamps=True)
-    if not model_cfg.model_path.is_dir():
-        raise PipelineError("Локальная модель не найдена; автоматическая загрузка отключена.")
-    vad_cfg = SegmentationConfig.from_settings(settings)
-    if vad_cfg.enabled and config.overlap_ms < vad_cfg.min_silence_ms + vad_cfg.padding_ms:
-        raise PipelineError(
-            "Overlap должен покрывать min_silence_ms + padding_ms для выбранного VAD."
-        )
-    # Bind configuration and local model identity, not mutable effective fallback state.
-    parameters = {
-        "vad": asdict(vad_cfg),
-        "model_config": json.loads(json.dumps(asdict(model_cfg), default=str)),
-        "model_files": {
-            name: media_fingerprint(model_cfg.model_path / name)
-            for name in ("model.bin", "config.json", "tokenizer.json")
-        },
-        "runtime": {name: version(name) for name in ("faster-whisper", "ctranslate2")},
-    }
+    task = prepare_task(settings, media, indices, config, resume)
     diagnostics = DiagnosticLog(settings.logs_dir)
     database = None
     try:
@@ -81,18 +55,6 @@ def run_transcription(
         ManagedTempFiles(settings.temp_dir).cleanup(
             protected=PostgreSQLHistoryStore(session_factory(database)).protected_sources(),
             ttl_hours=settings.temp_retention_hours,
-        )
-        task = WorkerTask(
-            uuid4(),
-            media.path,
-            indices,
-            config,
-            parameters,
-            settings.ffmpeg_path,
-            settings.ffprobe_path,
-            asdict(model_cfg),
-            asdict(vad_cfg),
-            resume,
         )
         with WorkerManager(store) as manager:
             manager.submit(task)

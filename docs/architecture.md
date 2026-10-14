@@ -625,3 +625,16 @@ GUI требует modal confirmation с default No и opt-in derived checkbox. 
 согласованно обновляет записи/таблицу/выбор. Worker process/job object/FIFO и graceful
 shutdown сохраняются; bounded event deque вытесняет progress перед terminal events
 в поддерживаемой bounded очереди GUI/CLI. Это не durable event journal.
+
+## Измерения и E2E, ШАГ 15
+
+Benchmark — dev-only Infrastructure composition, отдельный scripts/benchmark.py,
+не новый GUI/Domain API. Общий transcription_task.prepare_task используется CLI и
+benchmark с прежним WorkerManager/PostgreSQLPipelineStore. AppSettings — единственная
+конфигурация, отдельная test DB/random schema и Alembic, локальные owned artifacts.
+Resource sampler отдельно считает launcher process tree RSS и whole-device VRAM;
+публичные метрики не включают транскрипт/credentials/исходный путь. Benchmark явно
+отключает alternate compute fallback для воспроизводимости hardware profile.
+RAW reference-based scoring не преобразует исходный текст; модель/GUI/production
+pipeline не оптимизируются без измеренного bottleneck. Протокол —
+[benchmark.md](benchmark.md), фактические статусы — [progress.md](progress.md).

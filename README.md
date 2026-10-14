@@ -614,3 +614,16 @@ source-protection в реестре даже после удаления ист�
 
 Запись и обработка речи могут требовать согласия участников. Учитывайте это до
 импорта; применимые правила зависят от контекста и юрисдикции.
+
+Нагрузочные измерения ШАГА 15: [docs/benchmark.md](docs/benchmark.md).
+Заполните локальный manifest по [примеру](docs/benchmark.example.json) и сохраните
+под ignored tmp/, затем из корня:
+
+```powershell
+.venv/Scripts/python.exe scripts/check_postgresql.py --benchmark-manifest tmp/private-benchmark.json
+```
+
+Используются existing PostgreSQL binaries/owned separate cluster и локальная модель;
+память/время/RTF и crash-resume измеряются на реальном worker. Качество WER/CER требует
+независимого эталона, длинные/two-track испытания — реальных файлов; актуальный вердикт
+и непроверенные gates находятся в [docs/progress.md](docs/progress.md).

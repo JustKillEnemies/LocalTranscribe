@@ -212,3 +212,24 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | NFR-05/FR-10: paths/export filename | [export.py](../src/local_transcriber/application/export.py), [export_files.py](../src/local_transcriber/infrastructure/export_files.py) | Safe suggested Unicode filename/reserved/control chars, original collision protection, special-character source + real ffprobe/FFmpeg, existing exporter negative tests. |
 
 Результаты/статус и ручной долг шага 13 — только [progress.md](progress.md).
+
+## Артефакты и проверки шага 15
+
+| Требование | Артефакт | Проверка / граница |
+| --- | --- | --- |
+| NFR-01/02, TZ-TESTS §11.3: длительность/память/RTF | [benchmark.py](../src/local_transcriber/infrastructure/benchmark.py), [benchmark_resources.py](../src/local_transcriber/infrastructure/benchmark_resources.py), [benchmark.md](benchmark.md) | Реальные выбранные файлы и explicit prefixes/full-source, cold GPU, streamed sampled RSS/VRAM; >1 GB/≥3h/2 streams по наличию источников. |
+| NFR-03/FR-06, crash/resume/таймкоды | [benchmark.py](../src/local_transcriber/infrastructure/benchmark.py), [check_postgresql.py](../scripts/check_postgresql.py) | Own worker kill после commit, real PG resume same job, checkpoint IDs/digests/attempts, chunk coverage and segment bounds; не заменяет ручную проверку слов. |
+| TZ-TESTS §11.4: RAW WER/CER | [benchmark_quality.py](../src/local_transcriber/infrastructure/benchmark_quality.py), [test_benchmark.py](../tests/test_benchmark.py) | Независимый reference отдельно по stream, explicit normalization, substitutions/deletions/insertions/empty/Unicode/budget; без эталона метрики отсутствуют. |
+| TZ-FLOW/FR-07/FR-10: полный локальный цикл | [benchmark.py](../src/local_transcriber/infrastructure/benchmark.py) | Настоящие FFmpeg/VAD/STT/DB → RAW/READABLE → TXT/SRT/JSON/MD; сохранность оригинала. |
+| NFR-04/05: данные/ошибки/изоляция | [benchmark.example.json](benchmark.example.json), [benchmark.py](../scripts/benchmark.py), [test_benchmark.py](../tests/test_benchmark.py) | Только private owned local artifacts, no media Git, unsafe manifest/missing source rejection, absent VRAM не подменяется нулём. |
+
+Результаты PASS/FAIL/SKIP/NOT RUN и gate status — только [progress.md](progress.md).
+
+## Дополнение шага 15: публичные эталоны
+
+| Требование | Артефакт | Проверка / граница |
+| --- | --- | --- |
+| TZ-TESTS §11.4, WER/CER по RAW | [public_benchmark.py](../src/local_transcriber/infrastructure/public_benchmark.py), [launcher](../scripts/public_benchmark.py), [benchmark.md](benchmark.md) | Pinned FLEURS ru_ru test, selection до inference, audio/reference hashes, 32 real GPU/PG cases, primary frozen + secondary preregistered protocol, corpus micro counts. |
+| NFR-04/05: локальные данные/безопасность | [test_public_benchmark.py](../tests/test_public_benchmark.py) | Metadata/path traversal/empty reference reject, archive-order selection without extractall, corpus failures не исключаются, environment/media пользователя не загружаются. |
+
+Фактические метрики/статусы и ограничения — только [progress.md](progress.md).

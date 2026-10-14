@@ -22,6 +22,7 @@ def main() -> int:
         "--postgres-bin", type=Path, default=Path("C:/Program Files/PostgreSQL/18/bin")
     )
     parser.add_argument("--pytest-target", action="append", help="Run only selected pytest targets")
+    parser.add_argument("--benchmark-manifest", type=Path, help="Run real GPU E2E after checks")
     args = parser.parse_args()
     binaries = args.postgres_bin.resolve()
     required = ("initdb.exe", "pg_ctl.exe", "createdb.exe", "psql.exe", "postgres.exe")
@@ -182,6 +183,19 @@ def main() -> int:
         run([uv, "run", "ruff", "check", "."], "uv run ruff check .")
         run([uv, "run", "ruff", "format", "--check", "."], "uv run ruff format --check .")
         run(["git", "diff", "--check"], "git diff --check")
+        if args.benchmark_manifest:
+            run(
+                [
+                    uv,
+                    "run",
+                    "python",
+                    root / "scripts/benchmark.py",
+                    args.benchmark_manifest.resolve(),
+                    "--output",
+                    work / "benchmark",
+                ],
+                "real GPU benchmark in separate PostgreSQL",
+            )
     except (OSError, RuntimeError) as error:
         print(str(error).replace(password, "[REDACTED]"), flush=True)
         failed = True

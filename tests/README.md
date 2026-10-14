@@ -232,3 +232,15 @@ PostgreSQL/schema, реальный cascade/rollback и unavailable loopback end
 Test-only engine routing направляет CLI на fixture schema, не заменяет DB mock/SQLite.
 Runner logs/temp изолированы в workspace tmp/. Crash/checkpoint recovery повторно
 проверяется прежним integration scenario. Фактические команды/результаты — progress.
+
+ШАГ 15: tests/test_benchmark.py проверяет quality normalization/Levenshtein,
+негативные manifests, missing source preservation и real RSS sampler с отсутствующим
+nvidia-smi. Это не GPU quality acceptance. Реальные нагрузки выполняются через
+scripts/check_postgresql.py --benchmark-manifest PRIVATE_MANIFEST; протокол и
+ручные gates — [benchmark.md](../docs/benchmark.md), результат — progress.md.
+
+Публичный quality benchmark: test_public_benchmark.py проверяет corpus micro
+average, неизменность primary normalization, explicit secondary protocol,
+некорректные TSV/пути, archive order/traversal и запрет исключать failures.
+Сеть не нужна для unit tests. Реальные public-data CUDA/PG запуски и attribution
+описаны в [benchmark.md](../docs/benchmark.md), результаты — в progress.md.
