@@ -638,3 +638,17 @@ Resource sampler отдельно считает launcher process tree RSS и wh
 RAW reference-based scoring не преобразует исходный текст; модель/GUI/production
 pipeline не оптимизируются без измеренного bottleneck. Протокол —
 [benchmark.md](benchmark.md), фактические статусы — [progress.md](progress.md).
+
+## Windows deployment, ШАГ 16
+
+Frozen entry вызывает multiprocessing.freeze_support до CLI/Qt/ML imports,
+сохраняет source launchers, открывает GUI без аргументов и задаёт UTF-8 streams.
+doctor использует фиксированный private cuda-count subprocess protocol вместо
+попытки выполнить exe как python -c; произвольный код через него не принимается.
+CUDA DLL обнаруживаются под _MEIPASS/nvidia, модель и пользовательские data вне bundle.
+CLI db-upgrade — Infrastructure composition для существующих Alembic scripts:
+тот же AppSettings/local DB validation, явный head, без create DB/service/users.
+Spec собирает explicit src/modules/assets/migrations/metadata и DLL, исключает
+dev benchmark/Python test stacks; dependency notices и file inventory сопровождают
+onedir. Runtime audit hook активируется только opt-in smoke environment и не
+меняет обычный product flow. Deployment — [windows_setup.md](windows_setup.md).

@@ -30,6 +30,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command")
     gui = commands.add_parser("gui", help="открыть графический интерфейс", color=False)
     gui.add_argument("--env-file", type=Path)
+    migrate = commands.add_parser(
+        "db-upgrade", help="применить миграции локальной PostgreSQL", color=False
+    )
+    migrate.add_argument("--env-file", type=Path)
+    migrate.add_argument("--test", action="store_true", help="только отдельная test DB")
     doctor = commands.add_parser(
         "doctor", help="проверить настройки и локальные инструменты", color=False
     )
@@ -71,6 +76,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     add_export_command(commands)
     add_maintenance_command(commands)
     arguments = parser.parse_args(argv)
+    if arguments.command == "db-upgrade":
+        from local_transcriber.infrastructure.database.migrate import upgrade_database
+        from local_transcriber.infrastructure.database.session import PersistenceError
+        from local_transcriber.infrastructure.settings import ConfigurationError, load_settings
+
+        try:
+            upgrade_database(load_settings(arguments.env_file), test=arguments.test)
+        except (ConfigurationError, PersistenceError) as error:
+            print(f"Ошибка: {error}", file=sys.stderr)
+            return 3
+        print("Миграции PostgreSQL применены.")
+        return 0
     if arguments.command == "gui":
         from local_transcriber.ui.bootstrap import run_gui
 

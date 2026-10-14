@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import gc
 import os
+import sys
 import sysconfig
 import threading
 from collections.abc import Callable, Iterable
@@ -242,7 +243,7 @@ class FasterWhisperEngine:
     def _prepare_cuda_dlls(self) -> None:
         if self.config.device != "cuda" or os.name != "nt" or self._dll_handles:
             return
-        purelib = Path(sysconfig.get_paths()["purelib"])
+        purelib = Path(getattr(sys, "_MEIPASS", sysconfig.get_paths()["purelib"]))
         for directory in _cuda_dll_directories(purelib):
             self._dll_handles.append(os.add_dll_directory(str(directory)))
         for library in _cuda_preload_libraries(purelib):

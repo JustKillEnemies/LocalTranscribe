@@ -627,3 +627,16 @@ source-protection в реестре даже после удаления ист�
 память/время/RTF и crash-resume измеряются на реальном worker. Качество WER/CER требует
 независимого эталона, длинные/two-track испытания — реальных файлов; актуальный вердикт
 и непроверенные gates находятся в [docs/progress.md](docs/progress.md).
+
+Windows onedir сборка и установка: [docs/windows_setup.md](docs/windows_setup.md).
+Краткое использование: [docs/user_guide.md](docs/user_guide.md),
+компоненты/лицензии: [docs/third_party_notices.md](docs/third_party_notices.md).
+
+```powershell
+uv run python scripts/build_windows.py --output 'dist/My fresh Windows build'
+```
+
+Готовый exe запускается без Python/uv, вся папка onedir сохраняется вместе.
+Модель, FFmpeg/ffprobe, PostgreSQL и user .env/data подготавливаются отдельно.
+`db-upgrade` применяет миграции к настроенной существующей локальной БД.
+Фактическая готовность, packaged smoke и clean-VM ограничения — в progress.md.

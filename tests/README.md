@@ -244,3 +244,10 @@ average, неизменность primary normalization, explicit secondary prot
 некорректные TSV/пути, archive order/traversal и запрет исключать failures.
 Сеть не нужна для unit tests. Реальные public-data CUDA/PG запуски и attribution
 описаны в [benchmark.md](../docs/benchmark.md), результаты — в progress.md.
+
+Шаг 16: tests/test_packaging.py содержит audit/privacy и frozen doctor/DLL regressions.
+Реальный opt-in integration запускается check_postgresql.py --packaged-exe PATH
+только с собственным cluster marker, требует текущую model и prepared FLEURS fixture.
+Проверяет fresh configuration directories, actual read-only ACL artifact, native
+GUI WM_CLOSE, реальную GPU/SQL/экспорт и missing-model failure. Это не новая OS VM.
+Протокол — [windows_setup.md](../docs/windows_setup.md).

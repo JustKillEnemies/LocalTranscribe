@@ -144,9 +144,12 @@ def _cuda(settings: AppSettings, dry_run: bool) -> CheckResult:
                 name, Status.MISSING, "CTranslate2 не установлен. Автоматической установки нет."
             )
         code = "import json,ctranslate2; print(json.dumps(ctranslate2.get_cuda_device_count()))"
-        result = _run(
-            [sys.executable, "-I", "-B", "-X", "utf8", "-c", code], settings.probe_timeout
+        arguments = (
+            [sys.executable, "--_cuda-count"]
+            if getattr(sys, "frozen", False)
+            else [sys.executable, "-I", "-B", "-X", "utf8", "-c", code]
         )
+        result = _run(arguments, settings.probe_timeout)
         if result.returncode != 0:
             return CheckResult(
                 name,

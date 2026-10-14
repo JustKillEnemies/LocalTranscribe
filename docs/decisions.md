@@ -246,3 +246,13 @@
 | --- | --- | --- |
 | ADR-100 | FLEURS ru_ru test pinned revision, первые 32 archive-order WAV, raw_transcription references, CC BY attribution/provenance+hashes; stdlib streamed download без remote-code/новых ML deps. | Независимые публичные эталоны вместо ручной расшифровки пользователя; нет отбора удобных результатов, веса/данные остаются локально. |
 | ADR-101 | Сохранить frozen primary punctuation-sensitive protocol; отдельно заранее объявить Unicode punctuation-space secondary, считать micro errors/reference units и включать все выбранные cases. | Не подменяет основной результат улучшенной нормализацией/mean percentages, обнаруживает изменённые эталоны/RAW и неполную оценку. |
+
+## Windows onedir, ШАГ 16 — 2026-10-14
+
+| ID | Решение | Обоснование |
+| --- | --- | --- |
+| ADR-102 | PyInstaller 6.22.3 + locked hooks, Windows CPython 3.14 x64/GIL, onedir console entry с default GUI и freeze_support first. | Реальная поддержка текущего Python, один exe для CLI/GUI/spawn, без recursive launch. |
+| ADR-103 | CUDA runtime wheels/DLL/Qt/PyAV/ORT внутри bundle; Whisper model, FFmpeg executables, PostgreSQL и user config/data снаружи. | Самостоятельный executable без dev Python при сохранении внешних больших моделей и явной настройки ОС/DB. |
+| ADR-104 | Fixed private CUDA probe protocol, bundled DLL discovery и explicit db-upgrade на общих Alembic/AppSettings. | Исправляет frozen sys.executable/-c и bootstrap БД без дублирования настроек/установки службы. |
+| ADR-105 | Fresh output only, explicit spec inputs, locked manifests/notices/hash audit; editable direct_url/RECORD не включать. | Не перезаписывает пользовательские файлы, не собирает repo/.env/media/model directory и dev editable paths. |
+| ADR-106 | Packaged smoke в owned PG/изолированных env dirs, read-only ACL artifact + native WM_CLOSE + real CUDA; opt-in Python offline audit. | Проверяет реальные binary interfaces и данные, не подменяет отдельный чистый Windows account/VM или OS firewall test. |

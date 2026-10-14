@@ -23,6 +23,7 @@ def main() -> int:
     )
     parser.add_argument("--pytest-target", action="append", help="Run only selected pytest targets")
     parser.add_argument("--benchmark-manifest", type=Path, help="Run real GPU E2E after checks")
+    parser.add_argument("--packaged-exe", type=Path, help="Run opt-in packaged Windows smoke")
     args = parser.parse_args()
     binaries = args.postgres_bin.resolve()
     required = ("initdb.exe", "pg_ctl.exe", "createdb.exe", "psql.exe", "postgres.exe")
@@ -62,6 +63,9 @@ def main() -> int:
         LOCAL_TRANSCRIBER_LOGS_DIR=str(work / "logs"),
         LOCAL_TRANSCRIBER_TEMP_DIR=str(work / "temp"),
     )
+    if args.packaged_exe:
+        environment["LOCAL_TRANSCRIBER_PACKAGED_EXE"] = str(args.packaged_exe.resolve())
+        environment["LOCAL_TRANSCRIBER_OWNED_TEST_CLUSTER"] = "1"
     portable_bin = root / "tmp/step04-tools/ffmpeg-9.0.2-essentials_build/bin"
     for variable, executable in (
         ("LOCAL_TRANSCRIBER_FFMPEG_PATH", "ffmpeg.exe"),

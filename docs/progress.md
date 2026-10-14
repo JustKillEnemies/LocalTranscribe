@@ -4,6 +4,159 @@
 
 ## Текущий шаг
 
+ШАГ 16 — сборка Windows и инструкции установки.
+**IMPLEMENTED / WINDOWS BUILD VERIFIED / CLEAN-OS VERIFICATION PENDING — BLOCKED FOR STEP 17**.
+Готовый локальный exe: dist/LocalTranscribe Windows x64/LocalTranscribe/LocalTranscribe.exe.
+Реальное packaged GPU/PG/native GUI испытание на текущем Windows 11 — PASS.
+Полная setup-приёмка на отдельном чистом Windows account/VM пока NOT RUN.
+По запросу владельца ШАГ 15 закоммичен и запушен: **0416431**, origin/main.
+Запрос «закоммить и запушь потом след шаг» разрешает текущий ШАГ 16 с сохранением
+долга ШАГА 15: ≥3h/original two-track OBS MKV и manual original GUI/playback review
+не объявляются проверенными. Владелец подтвердил наличие только 95min MP4;
+stress/quality измерения на доступном файле и FLEURS сохранены в архиве ниже.
+ШАГ 17 не начат. Изменения ШАГА 16 не коммитились/не пушились.
+
+## Реализовано в ШАГЕ 16
+
+- CPython 3.14.4 x64 GIL, существующая .venv; dev PyInstaller 6.22.3/hooks 2026.8
+  закреплены lock. Глобальный Python, службы/driver/модель не устанавливались.
+- Реальный Windows onedir build, explicit inputs, separate model/config/media/DB,
+  bundled NVIDIA runtime/Qt/ORT/PyAV/psycopg; distribution manifest/notice copies и
+  SHA-256 inventory. FFmpeg/ffprobe/PostgreSQL server/tools внешние.
+- Frozen entry freeze_support/UTF-8/default GUI, fixed CUDA probe protocol,
+  bundled DLL directories; db-upgrade/repeat head на существующих scripts/AppSettings.
+- Fresh output guard, no repo recursive collection, no .env/media/private data,
+  основной Whisper model исключён, Silero runtime ONNX — разрешённый asset.
+- Setup/user guides, третьесторонние license/source files, architecture/ADR/matrix.
+- Unit build-audit/frozen regressions и opt-in actual packaged GPU/PG/native Qt/
+  read-only ACL/PATH/fresh settings/offline audit smoke. Отдельная OS VM не имитируется.
+
+## Проверено на момент реализации
+
+- Commit/push ШАГА 15 — PASS, remote main 0416431, рабочее дерево после push чистое.
+- 3 реальные Windows builds через scripts/build_windows.py:
+  dist/step16-windows, dist/step16 Windows, окончательный dist/LocalTranscribe Windows x64.
+  Последний до notice enrichment: 1161 files/2499658449 B. В конце добавлены
+  PyInstaller bootloader/tool licence notices, audit/inventory повторно сформированы:
+  **1183 files/2499784158 B**, 52 declared dependency notice entries.
+  Notice enrichment не изменял frozen code, driver/модель или SQL.
+- PyInstaller logs: tmp/windows-build-ca668e4420dd489bb40a3a2495f8c724,
+  tmp/windows-build-bd593a1e98d54b37a930afddb0e009c8,
+  tmp/windows-build-fb00487d90cf4267ad10836839fc4ea8/pyinstaller.log.
+- First exe --version и doctor --dry-run — PASS. Найдена CP1251 pipe output:
+  entry теперь явно UTF-8; development direct_url/RECORD исключены из metadata.
+- Первая packaged проверка: **3 passed / 1 failed, 21.51 s**. До failure реально
+  прошли doctor/schema/repeat/import/GPU inference/DB RAW+READABLE/export/native GUI/
+  missing model/read-only source и bundle. Failure — отсутствие sentinel-файла
+  offline audit в первом build (hook ещё не писал ACTIVE). Добавлен явный ACTIVE,
+  bundle пересобран; этот первый run не объявляется полностью PASS.
+  Own PG остановлен, artifact ACL восстановлен finally.
+  Артефакт: tmp/step03-pg-582da5d49bf745ab9d8411c8dd435f6b/checks.json.
+- **PASS**: `scripts/check_postgresql.py --pytest-target tests --packaged-exe
+  "dist/LocalTranscribe Windows x64/LocalTranscribe/LocalTranscribe.exe"`,
+  PYTEST_REQUIRE_CUDA=1 и реальный VAD fixture: **443 passed, 2 skipped, 78.52 s**.
+  SKIP только прежние opt-in direct hour/worker smoke без отдельных env flags;
+  packaged integration действительно выполнялась, не заменялась mock/SQLite.
+  Реальная PostgreSQL 18.3, Alembic upgrade/repeat/check/downgrade/base/upgrade/
+  current 0003, Ruff check/format (106 files на том запуске), diff — PASS.
+  Артефакт: tmp/step03-pg-12c3be9728b140c69d190fc765965d00/checks.json.
+- **PASS** после добавления явных Unicode path round-trip asserts и документации:
+  `scripts/check_postgresql.py --pytest-target tests/test_packaging.py
+  --pytest-target tests/test_repository_audit.py --packaged-exe
+  "dist/LocalTranscribe Windows x64/LocalTranscribe/LocalTranscribe.exe"`:
+  **77 passed, 0 skipped, 21.56 s**. Package tests повторно прошли с полным build.
+  До этого preflight format check обнаружил CRLF после Windows write_text нового
+  assert; ruff format нормализовал LF, финальный runner format — PASS (109 files).
+  Артефакт: tmp/step03-pg-afc7ddc503ae474f9ac665de3a4cf566/checks.json.
+- Реальный packaged smoke: --version/--help/doctor, head/repeat migrations,
+  inspect/import source с кириллицей/пробелами/& и read-only attribute,
+  cold spawned CUDA worker (реальная речь из public FLEURS, 8 s), SQL COMPLETED/
+  segments>0/RAW+READABLE, TXT export, native visible GUI и WM_CLOSE exit 0.
+  PATH только System32, fresh AppSettings/env data dirs, app folder deny-write ACL
+  реально проверен PermissionError. Source SHA и набор bundle files неизменны;
+  ACL восстановлен в finally. Own clusters обоих успешных runs остановлены.
+- Negative packaged case missing model — корректный nonzero, без пароля и без
+  авто-download; source сохранён. Frozen doctor probe и _MEIPASS CUDA directory
+  unit regressions — PASS. Аудит Python sockets подтверждён ACTIVE в actual exe/
+  worker, REMOTE_ATTEMPT нет, HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE включены.
+  Это конкретная проверка Python/offline local-model flow, не OS firewall trace.
+- **PASS**: `uv lock --check` (66 packages), Git excludes dist/tmp, preservation
+  AGENTS/ORIGINAL_TZ/requirements/implementation_plan/src/main.py/.gitignore.
+  Vendor notices: Python, Qt LGPL/GPL, NVIDIA wheels, PyInstaller bootloader
+  exception, CTranslate2/tokenizers/flatbuffers/Silero и wheel third-party notices.
+  Build audit не нашёл .env/private media/основной model/known credential prefixes;
+  scanner ограничен explicit-input checks/allowlists/известными prefix patterns.
+  Код сборки и artifacts не опубликованы/не подписаны/не запушены.
+
+## Финальный аудит metadata и повтор
+
+При последней проверке уже собранного dist обнаружено: automatic PyInstaller
+metadata hook повторно добавил direct_url.json и несколько RECORD, несмотря на
+фильтр explicit copy_metadata. Это metadata разработки, не исходники/пароли.
+Исправлено финальным фильтром Analysis.a.datas в spec и fail-guard в audit_bundle;
+regression tests теперь отвергают эти файлы и проверяют их отсутствие в реальном
+packaged artifact. В собственном проверенном dist удалены только generated
+*.dist-info/direct_url.json и RECORD, source/model/user files не затронуты.
+Post-collection filter записан в build-manifest, input hashes обновлены, inventory
+пересчитан: окончательно **1174 files / 2499670521 B** (без самого inventory).
+Frozen code не менялся. SHA-256 остальных файлов после GUI/GPU испытаний совпали.
+
+`scripts/check_postgresql.py --pytest-target tests/test_packaging.py
+--pytest-target tests/test_repository_audit.py --packaged-exe
+"dist/LocalTranscribe Windows x64/LocalTranscribe/LocalTranscribe.exe"` после fix:
+**77 passed, 0 skipped, 21.12 s**, включая Unicode path/filename equality,
+actual CUDA/PG/native GUI/read-only/offline и no-direct_url/RECORD regressions.
+Alembic upgrade/repeat/check/downgrade/base/upgrade/current 0003, Ruff check,
+format (109 files на этом запуске), git diff --check — PASS. Own PG остановлен,
+ACL восстановлен. Артефакт: tmp/step03-pg-b1d51d58cf7949029536ae64440d53e0/checks.json.
+Предыдущая полная регрессия 443 passed/2 skipped относится к тому же frozen code;
+после metadata-only filter повторена целевая packaged/documentation regression.
+
+## Файлы ШАГА 16
+
+Созданы bundling/LocalTranscribe.spec, entry.py, offline_audit.py,
+license-sources.json и 7 upstream license texts; scripts/build_windows.py;
+infrastructure/database/migrate.py; tests/test_packaging.py; docs/windows_setup.md,
+user_guide.md, third_party_notices.md. Изменены __main__.py, doctor.py,
+faster_whisper_engine.py, scripts/check_postgresql.py, pyproject.toml/uv.lock,
+README/tests README и architecture/decisions/progress/requirements_traceability.
+Основной pipeline/Domain/GUI бизнес-логика не переписывались; точки source entry
+сохранены. Existing tests/models/user files/working DB/service не удалялись.
+
+## Ручной чек-лист remaining setup acceptance
+
+1. На отдельном чистом Windows 11 x64/профиле (затем Windows 10 при поддержке)
+   скопировать весь onedir, подготовить driver/VC runtime, внешние FFmpeg/PG/model.
+2. По windows_setup создать свою role/DB/.env, db-upgrade → doctor → GUI.
+3. При отключённом внешнем интернете выполнить import/transcribe/export и
+   проверить оригинальный OBS playback/codec/таймкоды/закрытие приложения.
+4. Подписать фактическое окружение/результат; до этого clean-OS/offline-native
+   gates остаются NOT RUN. Старый ≥3h/two-track/manual OBS долг не закрывается
+   замером available 95min/FLEURS или текущим native packaged GUI smoke.
+
+## Ограничения и критерии приёмки
+
+Отдельный настоящий чистый Windows account/VM — NOT RUN: VM не предоставлена,
+WindowsSandbox.exe отсутствует. Изолированные env/data dirs не выдаются за
+чистую ОС. Windows 10 отдельно — NOT TESTED. Offline Python socket guard/HF flags
+не подменяют физически отключённую сеть/OS firewall/native network trace.
+Свой project licence владельцем не назначен; публикация/инсталлятор/signing не
+выполнялись, vendor notices не назначают лицензию проекта. Недоступные gates ШАГА 15
+сохранены. Для READY FOR STEP 17 требуется фактическая приёмка setup на чистой
+целевой ОС либо явное разрешение владельца продолжить с этим долгом.
+
+Документы: [windows_setup.md](windows_setup.md), [user_guide.md](user_guide.md),
+[third_party_notices.md](third_party_notices.md). Следующий этап — ШАГ 17 только
+по отдельному запросу; эта работа его не начинает.
+
+---
+
+# Состояние проекта
+
+Дата: 2026-10-14.
+
+## Архив: ШАГ 15 (до разрешённого перехода)
+
 ШАГ 15 — нагрузочные и качественные E2E тесты на реальном ПК.
 **IMPLEMENTED / PUBLIC QUALITY PASS / VERIFICATION PARTIAL — BLOCKED FOR STEP 16**.
 Harness/длинные OBS прогоны выполнены. Эталонная публичная quality проверка

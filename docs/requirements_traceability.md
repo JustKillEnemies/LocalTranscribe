@@ -233,3 +233,14 @@ pg_isready не подтверждает authentication/схему БД; пол�
 | NFR-04/05: локальные данные/безопасность | [test_public_benchmark.py](../tests/test_public_benchmark.py) | Metadata/path traversal/empty reference reject, archive-order selection without extractall, corpus failures не исключаются, environment/media пользователя не загружаются. |
 
 Фактические метрики/статусы и ограничения — только [progress.md](progress.md).
+
+## Артефакты и проверки шага 16
+
+| Требование | Артефакт | Проверка / граница |
+| --- | --- | --- |
+| TZ-DELIVERY §15 / TZ-STACK §2: Windows build | [build_windows.py](../scripts/build_windows.py), [spec](../bundling/LocalTranscribe.spec), [entry](../bundling/entry.py) | Реальный Windows onedir, locked Python 3.14/PyInstaller/hooks, model/config/data separate, hash manifest. |
+| NFR-03: packaged doctor/spawn/schema | [migrate.py](../src/local_transcriber/infrastructure/database/migrate.py), [test_packaging.py](../tests/test_packaging.py) | Реальный exe doctor/upgrade/repeat/import/GPU worker/export/native GUI, fixed probe без -c interpreter. |
+| NFR-04/05: offline/секреты/пути | [offline_audit.py](../bundling/offline_audit.py), [build_windows.py](../scripts/build_windows.py) | App readonly ACL/space/Unicode source, isolated config/PATH, optional non-loopback socket audit, explicit-input/credential-prefix dist audit. |
+| TZ-DELIVERY: setup/user/licences | [windows_setup.md](windows_setup.md), [user_guide.md](user_guide.md), [third_party_notices.md](third_party_notices.md) | Bootstrap/model/driver/DB/offline/dev instructions, installed/vendor licence texts и upstream digests; настоящая clean VM отдельно. |
+
+Вердикт, фактические команды/результаты и ручные gates — только progress.md.
